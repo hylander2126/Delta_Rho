@@ -11,8 +11,11 @@ The robot currently has a custom PCB housing a ATMega1284p chip. Flashing firmwa
 
 ### Simulation:
 Currently, all the simulation is performed in MATLAB. 
+
 ![](media_demos/attach_desired.gif)
 
 ![](media_demos/com_estimate.gif)
+
+---
 
 Reach out to Steven Hyland at smhyland@wpi.edu for further questions or concerns.

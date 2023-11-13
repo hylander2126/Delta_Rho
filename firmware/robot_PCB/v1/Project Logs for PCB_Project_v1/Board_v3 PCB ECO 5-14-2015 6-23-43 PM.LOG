@@ -1,0 +1,63 @@
+Added Component: Designator=C2(C1206)
+Added Component: Designator=C3(C1206)
+Added Component: Designator=C5(C1206)
+Added Component: Designator=C6(C1206)
+Added Component: Designator=C7(C1206)
+Added Component: Designator=C8(C1206)
+Added Component: Designator=C9(C1206)
+Added Component: Designator=C11(C1206)
+Added Component: Designator=C12(C1206)
+Added Pin To Net: NetName=GND Pin=C2-1
+Added Pin To Net: NetName=GND Pin=C3-1
+Added Pin To Net: NetName=GND Pin=C5-1
+Added Pin To Net: NetName=GND Pin=C6-1
+Added Pin To Net: NetName=GND Pin=C7-1
+Added Pin To Net: NetName=GND Pin=C8-2
+Added Pin To Net: NetName=GND Pin=C11-2
+Added Net: Name=GND
+Added Net: Name=LED1
+Added Net: Name=LED2
+Added Net: Name=MISO
+Added Net: Name=MOSI
+Added Net: Name=MOTOR1_A
+Added Net: Name=MOTOR1_B
+Added Net: Name=MOTOR2_A
+Added Net: Name=MOTOR2_B
+Added Net: Name=MOTOR3_A
+Added Net: Name=MOTOR3_B
+Added Pin To Net: NetName=NetC5_2 Pin=C5-2
+Added Net: Name=NetC5_2
+Added Pin To Net: NetName=NetC6_2 Pin=C6-2
+Added Net: Name=NetC6_2
+Added Pin To Net: NetName=NetC7_2 Pin=C7-2
+Added Net: Name=NetC7_2
+Added Pin To Net: NetName=NetC8_1 Pin=C8-1
+Added Net: Name=NetC8_1
+Added Pin To Net: NetName=NetC9_1 Pin=C9-1
+Added Net: Name=NetC9_1
+Added Pin To Net: NetName=NetC11_1 Pin=C11-1
+Added Net: Name=NetC11_1
+Added Pin To Net: NetName=NetC12_1 Pin=C12-1
+Added Net: Name=NetC12_1
+Added Net: Name=NetD1_1
+Added Net: Name=NetD2_1
+Added Net: Name=NetM1_1
+Added Net: Name=NetM1_2
+Added Net: Name=NetM2_1
+Added Net: Name=NetM2_2
+Added Net: Name=NetM3_1
+Added Net: Name=NetM3_2
+Added Net: Name=RESET
+Added Net: Name=RXD
+Added Net: Name=SCK
+Added Net: Name=SENS1
+Added Net: Name=SENS2
+Added Net: Name=TXD
+Added Pin To Net: NetName=VCC Pin=C2-2
+Added Pin To Net: NetName=VCC Pin=C3-2
+Added Net: Name=VCC
+Added Pin To Net: NetName=VIN Pin=C9-2
+Added Pin To Net: NetName=VIN Pin=C12-2
+Added Net: Name=VIN
+Added Class: Name=Schematic_v1
+Added Room: Name=Schematic_v1

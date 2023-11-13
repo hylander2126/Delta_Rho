@@ -1,0 +1,22 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Atmel Studio Solution File, Format Version 11.00
+VisualStudioVersion = 14.0.23107.0
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{54F91283-7BC4-4236-8FF9-10F437C3AD48}") = "Delta_Rho_controller", "Delta_Rho_controller.cproj", "{64E2E107-936C-48E5-A294-127FD95F9BB7}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|AVR = Debug|AVR
+		Release|AVR = Release|AVR
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{64E2E107-936C-48E5-A294-127FD95F9BB7}.Debug|AVR.ActiveCfg = Debug|AVR
+		{64E2E107-936C-48E5-A294-127FD95F9BB7}.Debug|AVR.Build.0 = Debug|AVR
+		{64E2E107-936C-48E5-A294-127FD95F9BB7}.Release|AVR.ActiveCfg = Release|AVR
+		{64E2E107-936C-48E5-A294-127FD95F9BB7}.Release|AVR.Build.0 = Release|AVR
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+EndGlobal

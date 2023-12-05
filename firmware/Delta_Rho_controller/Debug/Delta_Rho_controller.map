@@ -540,17 +540,17 @@ END GROUP
                 0x00000290       0x5e Delta_Rho_controller.o
                 0x00000290                updateState
  .text.__vector_28
-                0x000002ee      0x242 Delta_Rho_controller.o
+                0x000002ee      0x23c Delta_Rho_controller.o
                 0x000002ee                __vector_28
  .text.__vector_32
-                0x00000530       0x2c Delta_Rho_controller.o
-                0x00000530                __vector_32
+                0x0000052a       0x2c Delta_Rho_controller.o
+                0x0000052a                __vector_32
  .text.update_sensor
-                0x0000055c       0x26 Delta_Rho_controller.o
-                0x0000055c                update_sensor
+                0x00000556       0x26 Delta_Rho_controller.o
+                0x00000556                update_sensor
  .text.startup.main
-                0x00000582       0x74 Delta_Rho_controller.o
-                0x00000582                main
+                0x0000057c       0x7a Delta_Rho_controller.o
+                0x0000057c                main
  .text.avr-libc.fplib
                 0x000005f6       0x44 c:/program files (x86)/atmel/studio/7.0/toolchain/avr8/avr8-gnu-toolchain/bin/../lib/gcc/avr/5.4.0/../../../../avr/lib/avr51\libm.a(fp_split3.o)
                 0x000005f6                __fp_split3
@@ -713,20 +713,20 @@ END GROUP
 .debug_pubnames
  *(.debug_pubnames)
 
-.debug_info     0x00000000     0x1aa8
+.debug_info     0x00000000     0x1ac4
  *(.debug_info .gnu.linkonce.wi.*)
  .debug_info    0x00000000      0x792 C:/Program Files (x86)/Atmel/Studio/7.0/Packs/atmel/ATmega_DFP/1.6.364/gcc/dev/atmega1284p/avr51/crtatmega1284p.o
- .debug_info    0x00000792     0x1316 Delta_Rho_controller.o
+ .debug_info    0x00000792     0x1332 Delta_Rho_controller.o
 
 .debug_abbrev   0x00000000      0xb10
  *(.debug_abbrev)
  .debug_abbrev  0x00000000      0x729 C:/Program Files (x86)/Atmel/Studio/7.0/Packs/atmel/ATmega_DFP/1.6.364/gcc/dev/atmega1284p/avr51/crtatmega1284p.o
  .debug_abbrev  0x00000729      0x3e7 Delta_Rho_controller.o
 
-.debug_line     0x00000000      0xef7
+.debug_line     0x00000000      0xeed
  *(.debug_line .debug_line.* .debug_line_end)
  .debug_line    0x00000000      0x16a C:/Program Files (x86)/Atmel/Studio/7.0/Packs/atmel/ATmega_DFP/1.6.364/gcc/dev/atmega1284p/avr51/crtatmega1284p.o
- .debug_line    0x0000016a      0xd8d Delta_Rho_controller.o
+ .debug_line    0x0000016a      0xd83 Delta_Rho_controller.o
 
 .debug_frame    0x00000000      0x434
  *(.debug_frame)
@@ -738,9 +738,9 @@ END GROUP
  .debug_str     0x00000296      0x4ee Delta_Rho_controller.o
                                 0x535 (size before relaxing)
 
-.debug_loc      0x00000000     0x167b
+.debug_loc      0x00000000     0x1695
  *(.debug_loc)
- .debug_loc     0x00000000     0x167b Delta_Rho_controller.o
+ .debug_loc     0x00000000     0x1695 Delta_Rho_controller.o
 
 .debug_macinfo
  *(.debug_macinfo)

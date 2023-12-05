@@ -2,7 +2,7 @@
 // #include "Libraries/DeltaRho.h"
 
 // REMEMBER TO CHANGE ROBOTid FOR EACH ROBOT
-#define RobotID 3
+#define RobotID 4
 #define Kp 10
 
 
@@ -449,32 +449,35 @@ int main(void){
 	mC_init();
 	
 	
-	PORTC &= ~BIT(redLED);
+	PORTC &= ~BIT(redLED); // Turn OFF redLED
 
-	PORTC |= BIT(blueLED);
-	PORTC |= BIT(redLED);
+	PORTC |= BIT(blueLED); // Turn ON blueLED
+	PORTC |= BIT(redLED);  // Turn ON redLED
 	
 	n_x = 15;
 	t_x = 22;
 	
-	
 	TCCR3B = (0<<CS32) | (0<<CS31) | (0<<CS30);
 	sei();
+	
 	while(start == 0){
 		update_sensor(sensor);
-		PORTC  ^= BIT(blueLED);
-		_delay_ms(100); // Changed from 100 to test which loop is running 12/5/22
+		PORTC  ^= BIT(blueLED);	// Toggle blueLED
+		_delay_ms(100); // Changed from 100 to test which loop is running 11/28/23
 	}
-	PORTC |= BIT(blueLED);
-	TCCR3B = (1<<CS32) | (0<<CS31) | (1<<CS30);
 	
+	PORTC |= BIT(blueLED);		// Turn ON blueLED
+	TCCR3B = (1<<CS32) | (0<<CS31) | (1<<CS30);
+		
 	while (1){
 		// controller_old();
 		//f_desired_position();
-		//controller();
+		//controller();				// NOT SURE WHAT THIS DOES ... DOESN'T SEEM TO BE NEEDED WITH CENTRALIZED (MATLAB) CONTROL
+		
+		update_sensor(sensor);
 
-		PORTC ^= BIT(blueLED);
-		_delay_ms(500); // Changed from 500 07/31/23
+		PORTC ^= BIT(blueLED);		// Toggle blueLED
+		_delay_ms(100); // Changed from 500 07/31/23
 	}
 
 	return 0;

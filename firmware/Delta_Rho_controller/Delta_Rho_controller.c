@@ -1,5 +1,7 @@
 #include <\\research.wpi.edu\srl\Projects\Ant\Delta_Rho\Code\Libraries\DeltaRho.h>
-// #include "Libraries/DeltaRho.h"
+
+#include <math.h>
+// #include <Libraries/DeltaRho.h>
 
 // REMEMBER TO CHANGE ROBOTid FOR EACH ROBOT
 #define RobotID 4
@@ -13,24 +15,27 @@ volatile signed int xO[3] = {0,0,0};
 volatile signed int dx[3] = {0,0,0};
 volatile signed int dxO[3] = {0,0,0};
 		
-
 volatile float F_R[3] = {0,0,0};
-
 
 volatile int out[3] = {0,0,0};
 volatile int in[3] = {0,0,0};
 
 volatile char start = 0;
 
-// Hyland - Adding sensor variable
-volatile signed int sensor[] = {0,0,0};
+
+// Hyland - FORCE SENSOR DECLARATIONS
+double sensor[2] = {0.0, 0.0};
+const double Links[5] = {25.0, 25.0, 40.0, 40.0, 22.84};
+double p1[2] = {0.0, 0.0};
+double p2[2] = {22.84, 0.0};
+double EE[3] = {0, 0};
+//
 
 
 volatile unsigned int t_x = 0;
 volatile unsigned int t_o = 0;
 volatile unsigned char n_x = 0;
 volatile unsigned char n_o = 0;
-
 
 
 void controller(void);
@@ -40,7 +45,7 @@ void f_desired_position(void);
 // Hyland - Adding sensor read function
 //void sensor_read(void);
 
-float calculateTime( unsigned char *n, unsigned int *timerValue){
+float calculateTime(unsigned char *n, unsigned int *timerValue){
 	
 	float time = 0;
 	unsigned int CurrentTimer;
@@ -146,7 +151,9 @@ ISR(USART1_RX_vect)
 				// Hyland 11-16-22 - Adding sensor read request: in MATLAB, SerialCommunication.m says 208, 224, 80, 96 are reserved...
 
 				case(0x50): // Sensor Values -> Read request (80 in decimal)
-					USART1_SerialSend(sensor, 3);
+					//USART1_SerialSend(sensor, 3);
+					//USART1_SerialSend(alpha, 3);
+					USART1_SerialSend(EE, 3);
 				break;
 				//////////////////////////////////////////////////////////////////////////
 				
@@ -426,16 +433,98 @@ ISR(TIMER3_COMPA_vect)
 
 
 //////////////////////////////////////////////////////////////////////////
-///     Sensor Read Function
+///     Read sensor and process to radians (or degrees)
 //////////////////////////////////////////////////////////////////////////
-void update_sensor(int *array)
-{
+void updateSensor(double alpha_out[2]) {
+	double base_angles[2];
+
 	signed int a = ADC_read(0);
 	signed int b = ADC_read(3);
-
-	array[0] = a;
-	array[1] = b;
+		
+	// Now map voltage to radians
+	//double offset = 75.0; // 84.51; // degrees (1.475 rads)
+	
+	// Map voltage to angle (deg). Then apply the offset to make '0 degrees' correspond to +X axis (REMOVED OFFSET FOR NOW TODO: ADD BACK IN + CALIB)
+	base_angles[0] = ((a / 1024.0) * 5.76) - 1.475; // 330.0 degs , 84.51 degs
+	base_angles[1] = ((b / 1024.0) * 5.76) - 1.475; // 330.0 degs , 84.51 degs
+	
+	alpha_out[0] = base_angles[0]; // (int)(base_angles[0]*180/3.14159);
+	alpha_out[1] = base_angles[1]; // (int)(base_angles[1]*180/3.14159);
+	//alpha_out[2] = 0;
+	
+	return alpha_out;
 }
+
+
+//////////////////////////////////////////////////////////////////////////
+///     Rotate 2D vector by angle (DEGREES)
+//////////////////////////////////////////////////////////////////////////
+void sensorKinematics(double alpha[2], int EE[3]) {
+	
+	double p3[2] = {0.0, 0.0};
+	double p4[2] = {0.0, 0.0};
+	double p5[2] = {0.0, 0.0};
+	double lambda[2] = {0.0, 0.0};
+	double lambda_mag;
+	double vec_along_l3[2];
+	
+	// Joint 3 coords
+	p3[0] = p1[0] + Links[0]*cos(alpha[0]);
+	p3[1] = p1[1] + Links[0]*sin(alpha[0]);
+	
+	// Joint 4 coords
+	p4[0] = p2[0] + Links[1]*cos(alpha[1]);
+	p4[1] = p2[1] + Links[1]*sin(alpha[1]);
+	
+	// Distance between 3 and 4
+	lambda[0] = p4[0] - p3[0];
+	lambda[1] = p4[1] - p3[1];
+	
+	//lambda_mag = norm2D(lambda);
+	lambda_mag = sqrt(pow(lambda[0],2) + pow(lambda[1],2));
+	
+	// Calculate angle between lambda and l3 using law of cosines
+	double xi;
+	double xi_mag;
+	
+	xi = acos((pow(Links[2],2) + pow(lambda_mag,2) - pow(Links[3],2)) / (2 * Links[2] * lambda_mag));
+	
+	// Find EE (joint 5): multiply unit vector along lambda by l3, rotate by xi, then shift origin by p3
+	vec_along_l3[0] = Links[2] * lambda[0]/lambda_mag;
+	vec_along_l3[1] = Links[2] * lambda[1]/lambda_mag;
+	
+	rotateVector2D(vec_along_l3, xi);
+	
+	p5[0] = (p3[0] + vec_along_l3[0])*100;
+	p5[1] = (p3[1] + vec_along_l3[1])*100;
+	
+	EE[0] = (int) p5[0];
+	EE[1] = (int) p5[1];
+	
+	return EE;
+}
+
+
+//////////////////////////////////////////////////////////////////////////
+///     Rotate 2D vector by angle (RADIANS)
+//////////////////////////////////////////////////////////////////////////
+void rotateVector2D(double *in_vector, double angle) {
+	in_vector[0] = in_vector[0] * cos(angle) - in_vector[1] * sin(angle);
+	in_vector[1] = in_vector[0] * sin(angle) + in_vector[1] * cos(angle);
+}
+
+
+//////////////////////////////////////////////////////////////////////////
+///     Get HOME CONFIGURATION of 5bar sensor
+//////////////////////////////////////////////////////////////////////////
+void getHome(double home[2]){
+	double restingAngles[2] = {1.047, 2.094}; // Resting base angles in RADIANS
+	
+	sensorKinematics(home, EE);
+	
+	return home;
+}
+
 
 //================================================================================================
 //                                          Main
@@ -444,13 +533,10 @@ int main(void){
 
 	int i;
 	float time;
-	
-	
+		
 	mC_init();
 	
-	
 	PORTC &= ~BIT(redLED); // Turn OFF redLED
-
 	PORTC |= BIT(blueLED); // Turn ON blueLED
 	PORTC |= BIT(redLED);  // Turn ON redLED
 	
@@ -461,7 +547,9 @@ int main(void){
 	sei();
 	
 	while(start == 0){
-		update_sensor(sensor);
+		updateSensor(sensor);
+		sensorKinematics(sensor, EE);
+		
 		PORTC  ^= BIT(blueLED);	// Toggle blueLED
 		_delay_ms(100); // Changed from 100 to test which loop is running 11/28/23
 	}
@@ -470,11 +558,13 @@ int main(void){
 	TCCR3B = (1<<CS32) | (0<<CS31) | (1<<CS30);
 		
 	while (1){
+		// IT DOESNT APPEAR THIS LOOP EVER RUNS... HAVEN'T TESTED IF IT RUNS WHEN SENDING MOTOR COMMANDS
+		
 		// controller_old();
 		//f_desired_position();
 		//controller();				// NOT SURE WHAT THIS DOES ... DOESN'T SEEM TO BE NEEDED WITH CENTRALIZED (MATLAB) CONTROL
 		
-		update_sensor(sensor);
+		//updateSensor(alpha);
 
 		PORTC ^= BIT(blueLED);		// Toggle blueLED
 		_delay_ms(100); // Changed from 500 07/31/23

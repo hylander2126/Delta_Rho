@@ -23,12 +23,18 @@ volatile int in[3] = {0,0,0};
 volatile char start = 0;
 
 
-// Hyland - FORCE SENSOR DECLARATIONS
-double sensor[2] = {0.0, 0.0};
-const double Links[5] = {25.0, 25.0, 40.0, 40.0, 22.84};
-double p1[2] = {0.0, 0.0};
-double p2[2] = {22.84, 0.0};
-double EE[3] = {0, 0};
+// Hyland - FORCE SENSOR Variables
+float sensor_data[2] = {0.0, 0.0};
+const float Links[5] = {25.0, 25.0, 40.0, 40.0, 22.84};
+float p1[2] = {0.0, 0.0};
+float p2[2] = {22.84, 0.0};
+float EE[3] = {0, 0};
+float home[2] = {0, 0};
+float EE_response[3] = {0,0};
+//
+
+// Hyland - Jacobian
+float J_r[3][3] = {{0.8192, 0.5736, -0.1621}, {0.0, -1.0, -1.36}, {-0.8192, 0.5736, -0.1621}};
 //
 
 
@@ -41,9 +47,6 @@ volatile unsigned char n_o = 0;
 void controller(void);
 void f_desired_manipulation(void);
 void f_desired_position(void);
-
-// Hyland - Adding sensor read function
-//void sensor_read(void);
 
 float calculateTime(unsigned char *n, unsigned int *timerValue){
 	
@@ -435,9 +438,9 @@ ISR(TIMER3_COMPA_vect)
 //////////////////////////////////////////////////////////////////////////
 ///     Read sensor and process to radians (or degrees)
 //////////////////////////////////////////////////////////////////////////
-void updateSensor(double alpha_out[2]) {
-	double base_angles[2];
-
+void updateSensor(void) {
+	float base_angles[2];
+	// Read from registers 0 and 3 for potentiometers 1 and 2 respectively
 	signed int a = ADC_read(0);
 	signed int b = ADC_read(3);
 		
@@ -448,67 +451,58 @@ void updateSensor(double alpha_out[2]) {
 	base_angles[0] = ((a / 1024.0) * 5.76) - 1.475; // 330.0 degs , 84.51 degs
 	base_angles[1] = ((b / 1024.0) * 5.76) - 1.475; // 330.0 degs , 84.51 degs
 	
-	alpha_out[0] = base_angles[0]; // (int)(base_angles[0]*180/3.14159);
-	alpha_out[1] = base_angles[1]; // (int)(base_angles[1]*180/3.14159);
-	//alpha_out[2] = 0;
-	
-	return alpha_out;
+	sensor_data[0] = base_angles[0]; // (int)(base_angles[0]*180/3.14159);
+	sensor_data[1] = base_angles[1]; // (int)(base_angles[1]*180/3.14159);
 }
 
 
 //////////////////////////////////////////////////////////////////////////
 ///     Rotate 2D vector by angle (DEGREES)
 //////////////////////////////////////////////////////////////////////////
-void sensorKinematics(double alpha[2], int EE[3]) {
+void sensorKinematics(float alpha[2]) {
 	
-	double p3[2] = {0.0, 0.0};
-	double p4[2] = {0.0, 0.0};
-	double p5[2] = {0.0, 0.0};
-	double lambda[2] = {0.0, 0.0};
-	double lambda_mag;
-	double vec_along_l3[2];
+	float p3[2];
+	float p4[2];
+	float p5[2];
+	float lambda[2];
+	float lambda_mag;
+	float xi;
+	float vec_along_l3[2];
 	
 	// Joint 3 coords
 	p3[0] = p1[0] + Links[0]*cos(alpha[0]);
 	p3[1] = p1[1] + Links[0]*sin(alpha[0]);
-	
 	// Joint 4 coords
 	p4[0] = p2[0] + Links[1]*cos(alpha[1]);
 	p4[1] = p2[1] + Links[1]*sin(alpha[1]);
-	
 	// Distance between 3 and 4
 	lambda[0] = p4[0] - p3[0];
-	lambda[1] = p4[1] - p3[1];
-	
+	lambda[1] = p4[1] - p3[1];	
 	//lambda_mag = norm2D(lambda);
 	lambda_mag = sqrt(pow(lambda[0],2) + pow(lambda[1],2));
-	
-	// Calculate angle between lambda and l3 using law of cosines
-	double xi;
-	double xi_mag;
-	
+	// Calculate angle between lambda and l3 using law of cosines	
 	xi = acos((pow(Links[2],2) + pow(lambda_mag,2) - pow(Links[3],2)) / (2 * Links[2] * lambda_mag));
-	
 	// Find EE (joint 5): multiply unit vector along lambda by l3, rotate by xi, then shift origin by p3
 	vec_along_l3[0] = Links[2] * lambda[0]/lambda_mag;
 	vec_along_l3[1] = Links[2] * lambda[1]/lambda_mag;
 	
 	rotateVector2D(vec_along_l3, xi);
 	
-	p5[0] = (p3[0] + vec_along_l3[0])*100;
-	p5[1] = (p3[1] + vec_along_l3[1])*100;
+	p5[0] = (p3[0] + vec_along_l3[0] - home[0]); //*100;
+	p5[1] = (p3[1] + vec_along_l3[1] - home[1]); //*100;
 	
-	EE[0] = (int) p5[0];
-	EE[1] = (int) p5[1];
+	EE[0] = p5[0]; // (int) before p5 to cast to integer
+	EE[1] = p5[1];
 	
-	return EE;
+	EE_response[0] = (int) (EE[0]*100);
+	EE_response[1] = (int) (EE[1]*100);
 }
 
 
 //////////////////////////////////////////////////////////////////////////
 ///     Rotate 2D vector by angle (RADIANS)
 //////////////////////////////////////////////////////////////////////////
-void rotateVector2D(double *in_vector, double angle) {
+void rotateVector2D(float *in_vector, float angle) {
 	in_vector[0] = in_vector[0] * cos(angle) - in_vector[1] * sin(angle);
 	in_vector[1] = in_vector[0] * sin(angle) + in_vector[1] * cos(angle);
 }
@@ -517,38 +511,106 @@ void rotateVector2D(double *in_vector, double angle) {
 //////////////////////////////////////////////////////////////////////////
 ///     Get HOME CONFIGURATION of 5bar sensor
 //////////////////////////////////////////////////////////////////////////
-void getHome(double home[2]){
-	double restingAngles[2] = {1.047, 2.094}; // Resting base angles in RADIANS
-	
-	sensorKinematics(home, EE);
-	
-	return home;
+void getHome(void){
+	float resting_angles[2] = {1.047, 2.094}; // Resting base angles in RADIANS
+		
+	sensorKinematics(resting_angles);
+	home[0] = EE[0];
+	home[1] = EE[1];
 }
 
+
+//////////////////////////////////////////////////////////////////////////
+///     Respond to sensor info - cancel out force
+//////////////////////////////////////////////////////////////////////////
+void controller_test (float EE_pos[2]){
+	
+	// u_r[0] is X motion (Forw+/Backw-)
+	// u_r[1] is Y motion (Right+/Left-)
+	// u_r[2] is Z motion (CCW+/CW-)
+	
+	float u_r[3];
+	unsigned char u[3][2];
+	float f[3] = {0,0,0};
+	signed int temp;
+
+	u_r[0] = EE[0]*10.0;
+	u_r[1] = EE[1]*10.0;
+	u_r[2] = 0.0;
+	
+	// Perform the matrix multiplication J_r * u_r
+	for (int i = 0; i < 3; i++) {
+		for (int j = 0; j < 3; j++) {
+			f[i] += J_r[i][j] * u_r[j];
+		}
+	}	
+	
+	// Assign to wheel array
+	for (int i = 0; i < 3; i++){
+		temp = (int)roundf(f[i]);
+		
+		if(temp > 255){
+			temp = 255;
+		}
+		else if(temp < -255){
+			temp = -255;
+		}
+		if(temp >= 0){
+			u[i][0] = 0;
+			u[i][1] = abs(temp);
+		}
+		else{
+			u[i][0] = abs(temp);
+			u[i][1] = 0;
+		}
+	}
+
+	// Front Left
+	FLCW = u[0][1];
+	FLCCW = u[0][0];
+	// Rear
+	RCCW = u[1][0];
+	RCW = u[1][1];
+	//Front Right
+	FRCCW = u[2][0];
+	FRCW = u[2][1];	
+}
 
 //================================================================================================
 //                                          Main
 //================================================================================================
 int main(void){
 
-	int i;
-	float time;
+	//float time;
+	int county = 0;
 		
 	mC_init();
+	getHome();
 	
 	PORTC &= ~BIT(redLED); // Turn OFF redLED
 	PORTC |= BIT(blueLED); // Turn ON blueLED
 	PORTC |= BIT(redLED);  // Turn ON redLED
 	
-	n_x = 15;
-	t_x = 22;
-	
 	TCCR3B = (0<<CS32) | (0<<CS31) | (0<<CS30);
 	sei();
 	
+	//n_x = 15;
+	//t_x = 22;
+	
+	// Primary Loop
 	while(start == 0){
-		updateSensor(sensor);
-		sensorKinematics(sensor, EE);
+		// ADC read and assign to 'sensor_data'
+		updateSensor();
+		// Calculate force and direction of sensor, assign to 'EE'
+		sensorKinematics(sensor_data);
+		// Move robot based on measured force
+		//if (county > 100){
+			//EE[0] = 0;
+			//EE[1] = 0;
+			//EE[2] = 0;
+		//}
+		controller_test(EE);
+		county += 1;
 		
 		PORTC  ^= BIT(blueLED);	// Toggle blueLED
 		_delay_ms(100); // Changed from 100 to test which loop is running 11/28/23

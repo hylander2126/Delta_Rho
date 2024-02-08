@@ -4,7 +4,7 @@
 // #include <Libraries/DeltaRho.h>
 
 // REMEMBER TO CHANGE ROBOTid FOR EACH ROBOT
-#define RobotID 4
+#define RobotID 3
 #define Kp 10
 
 
@@ -26,12 +26,20 @@ volatile char start = 0;
 // Hyland - FORCE SENSOR Variables
 float sensor_data[2] = {0.0, 0.0};
 const float Links[5] = {25.0, 25.0, 40.0, 40.0, 22.84};
-float p1[2] = {0.0, 0.0};
-float p2[2] = {22.84, 0.0};
+float p1[2] = {0, 0};
+float p2[2] = {22.84, 0};
+float p3[2] = {0, 0};
+float p4[2] = {0, 0};
+	
 float EE[3] = {0, 0};
 float home[2] = {0, 0};
-float EE_response[3] = {0,0};
-//
+	
+volatile int send_EE[3] = {0, 0, 0};
+volatile int send_sensor[3] = {0, 0, 0};
+	
+// Hyland - Mode Toggle (binary for now)
+int mode_switch = 0;
+float u_r[3] = {0, 0, 0};
 
 // Hyland - Jacobian
 float J_r[3][3] = {{0.8192, 0.5736, -0.1621}, {0.0, -1.0, -1.36}, {-0.8192, 0.5736, -0.1621}};
@@ -48,44 +56,6 @@ void controller(void);
 void f_desired_manipulation(void);
 void f_desired_position(void);
 
-float calculateTime(unsigned char *n, unsigned int *timerValue){
-	
-	float time = 0;
-	unsigned int CurrentTimer;
-	
-	CurrentTimer = TCNT3;
-	
-	time =  *n*(OCR3A + 1) + CurrentTimer - *timerValue;
-	
-	*n = 0;
-	*timerValue = CurrentTimer;
-	
-	time = time*0.0001024;
-	
-	return time;
-}
-
-void updateState(signed int* X, signed int *dX, unsigned char* n, unsigned int* timerValue){
-	
-	char i;
-	float time;
-	signed int X_old;
-	unsigned char regl, regh;
-	
-	time = calculateTime(n, timerValue);
-	
-	
-	for(i=0;i<3;i++){
-		X_old = X[i];
-		
-		regl = USART1_Receive();
-		regh = USART1_Receive();
-		((signed int*)X)[i] = ((regh << 8) | regl);
-		
-		((signed int*)dX)[i] = (((int *)X[i]) - X_old);
-		}
-	
-}
 
 ISR(USART1_RX_vect)
 {
@@ -137,6 +107,10 @@ ISR(USART1_RX_vect)
 					USART1_SerialGet(in, 3);
 				break;
 				
+				case(0x40): // Actuator values -> Read request (64)
+				// USART1_SerialSend();
+				break;
+				
 				case(0xC0): // Actuator values -> Write request (192)
 					FLCCW = USART1_Receive();
 					FLCW = USART1_Receive();
@@ -146,17 +120,27 @@ ISR(USART1_RX_vect)
 					FRCW = USART1_Receive();
 				break;
 				
-				case(0x40): // Actuator values -> Read request (64)
-					// USART1_SerialSend();
-				break;
 				
 				//////////////////////////////////////////////////////////////////////////
-				// Hyland 11-16-22 - Adding sensor read request: in MATLAB, SerialCommunication.m says 208, 224, 80, 96 are reserved...
+				// Hyland 11-16-22 - Adding sensor read request: SerialCommunication.m says 208, 224, 80, 96 are reserved...
 
 				case(0x50): // Sensor Values -> Read request (80 in decimal)
-					//USART1_SerialSend(sensor, 3);
-					//USART1_SerialSend(alpha, 3);
-					USART1_SerialSend(EE, 3);
+				
+					// SEND BASE ANGLES (degrees)
+					//send_sensor[0] = (int) (sensor_data[0] * 180/3.1415);
+					//send_sensor[1] = (int) (sensor_data[1] * 180/3.1415);
+					//USART1_SerialSend(send_sensor, 3);
+					
+					// SEND EE POSITION (mm)
+					send_EE[0] = (int) (EE[0] * 100);
+					send_EE[1] = (int) (EE[1] * 100);
+					USART1_SerialSend(send_EE, 3);
+				break;
+				
+				
+				case(0xD0): // Switch actuation mode -> Write request (108 in decimal)
+					mode_switch	= !mode_switch; // Toggle from zero-force mode to driving mode.
+				
 				break;
 				//////////////////////////////////////////////////////////////////////////
 				
@@ -172,6 +156,45 @@ ISR(USART1_RX_vect)
 		} // End of: if ID match	
 	}	// End of: if start
 	PORTC |= BIT(redLED);
+}
+
+float calculateTime(unsigned char *n, unsigned int *timerValue){
+	
+	float time = 0;
+	unsigned int CurrentTimer;
+	
+	CurrentTimer = TCNT3;
+	
+	time =  *n*(OCR3A + 1) + CurrentTimer - *timerValue;
+	
+	*n = 0;
+	*timerValue = CurrentTimer;
+	
+	time = time*0.0001024;
+	
+	return time;
+}
+
+void updateState(signed int* X, signed int *dX, unsigned char* n, unsigned int* timerValue){
+	
+	char i;
+	float time;
+	signed int X_old;
+	unsigned char regl, regh;
+	
+	time = calculateTime(n, timerValue);
+	
+	
+	for(i=0;i<3;i++){
+		X_old = X[i];
+		
+		regl = USART1_Receive();
+		regh = USART1_Receive();
+		((signed int*)X)[i] = ((regh << 8) | regl);
+		
+		((signed int*)dX)[i] = (((int *)X[i]) - X_old);
+	}
+	
 }
 
 void f_desired_manipulation(void){
@@ -439,30 +462,21 @@ ISR(TIMER3_COMPA_vect)
 ///     Read sensor and process to radians (or degrees)
 //////////////////////////////////////////////////////////////////////////
 void updateSensor(void) {
-	float base_angles[2];
 	// Read from registers 0 and 3 for potentiometers 1 and 2 respectively
-	signed int a = ADC_read(0);
-	signed int b = ADC_read(3);
+	signed int a = ADC_read(0); //  'left' pot (joint 1)
+	signed int b = ADC_read(3); // 'right' pot (joint 2)
 		
-	// Now map voltage to radians
-	//double offset = 75.0; // 84.51; // degrees (1.475 rads)
-	
-	// Map voltage to angle (deg). Then apply the offset to make '0 degrees' correspond to +X axis (REMOVED OFFSET FOR NOW TODO: ADD BACK IN + CALIB)
-	base_angles[0] = ((a / 1024.0) * 5.76) - 1.475; // 330.0 degs , 84.51 degs
-	base_angles[1] = ((b / 1024.0) * 5.76) - 1.475; // 330.0 degs , 84.51 degs
-	
-	sensor_data[0] = base_angles[0]; // (int)(base_angles[0]*180/3.14159);
-	sensor_data[1] = base_angles[1]; // (int)(base_angles[1]*180/3.14159);
+	// Map voltage to radians, then apply offset to make '0 degrees' == +x axis
+	sensor_data[0] = ((a / 1024.0) * 5.76) - 1.3; // 1.3 rad ~ 74.5 deg (nominal offset)
+	sensor_data[1] = ((b / 1024.0) * 5.76) - 1.474; // 1.474 rad ~ 84.5 deg (nominal offset)
 }
 
 
 //////////////////////////////////////////////////////////////////////////
-///     Rotate 2D vector by angle (DEGREES)
+///     Calculate EE position based on current base angles
 //////////////////////////////////////////////////////////////////////////
-void sensorKinematics(float alpha[2]) {
+void sensorKinematics(float alpha[2]) { 
 	
-	float p3[2];
-	float p4[2];
 	float p5[2];
 	float lambda[2];
 	float lambda_mag;
@@ -488,23 +502,27 @@ void sensorKinematics(float alpha[2]) {
 	
 	rotateVector2D(vec_along_l3, xi);
 	
-	p5[0] = (p3[0] + vec_along_l3[0] - home[0]); //*100;
-	p5[1] = (p3[1] + vec_along_l3[1] - home[1]); //*100;
+	p5[0] = p3[0] + vec_along_l3[0];
+	p5[1] = p3[1] + vec_along_l3[1];
 	
-	EE[0] = p5[0]; // (int) before p5 to cast to integer
-	EE[1] = p5[1];
-	
-	EE_response[0] = (int) (EE[0]*100);
-	EE_response[1] = (int) (EE[1]*100);
+	EE[0] = p5[0] - home[0];
+	EE[1] = p5[1] - home[1];
 }
 
 
 //////////////////////////////////////////////////////////////////////////
 ///     Rotate 2D vector by angle (RADIANS)
 //////////////////////////////////////////////////////////////////////////
-void rotateVector2D(float *in_vector, float angle) {
-	in_vector[0] = in_vector[0] * cos(angle) - in_vector[1] * sin(angle);
-	in_vector[1] = in_vector[0] * sin(angle) + in_vector[1] * cos(angle);
+void rotateVector2D(float in_vector[2], float angle) {
+	float tempX;
+	float tempY;
+	
+	// Calculate new x and y using rotation matrix
+	tempX = in_vector[0] * cos(angle) - in_vector[1] * sin(angle);
+	tempY = in_vector[0] * sin(angle) + in_vector[1] * cos(angle);
+
+	in_vector[0] = tempX;
+	in_vector[1] = tempY;
 }
 
 
@@ -512,31 +530,44 @@ void rotateVector2D(float *in_vector, float angle) {
 ///     Get HOME CONFIGURATION of 5bar sensor
 //////////////////////////////////////////////////////////////////////////
 void getHome(void){
-	float resting_angles[2] = {1.047, 2.094}; // Resting base angles in RADIANS
-		
-	sensorKinematics(resting_angles);
-	home[0] = EE[0];
-	home[1] = EE[1];
+	//float resting_angles[2] = {2.094, 1.047}; // Resting base angles in RADIANS (120 and 60 degs)
+	//sensorKinematics(resting_angles); // Run kinematics on resting base angles
+	//home[0] = EE[0];
+	//home[1] = EE[1];
+	
+	// TEMPORARILY HARD-CODING VALUES FROM GEOMETRIC ANALYSIS 02-07-2024
+	home[0] = 9.7; // 11.42;
+	home[1] = 50.1; // 53.71;
 }
 
 
 //////////////////////////////////////////////////////////////////////////
-///     Respond to sensor info - cancel out force
+///     Cancel out force measured by sensor
 //////////////////////////////////////////////////////////////////////////
-void controller_test (float EE_pos[2]){
+void nullSpaceControl (void) {
 	
 	// u_r[0] is X motion (Forw+/Backw-)
 	// u_r[1] is Y motion (Right+/Left-)
 	// u_r[2] is Z motion (CCW+/CW-)
 	
-	float u_r[3];
 	unsigned char u[3][2];
 	float f[3] = {0,0,0};
 	signed int temp;
+	
+	float gainX; // gain in ROBOT's X direction
+	float gainY; // gain in ROBOT's Y direction
+	
+	gainY = 20;
+	gainX = gainY;
+	// Sensor displacement 'away' from robot has dampened so increase the 'fwd/back' gain
+	if (EE[1] > 3) {
+		gainX += 10;
+	}
 
-	u_r[0] = EE[0]*10.0;
-	u_r[1] = EE[1]*10.0;
-	u_r[2] = 0.0;
+	// Sensor 'x' is robot 'y' and vice-versa
+	u_r[0] = EE[1]*gainX;
+	u_r[1] = EE[0]*gainY;
+	u_r[2] = 0;
 	
 	// Perform the matrix multiplication J_r * u_r
 	for (int i = 0; i < 3; i++) {
@@ -576,16 +607,90 @@ void controller_test (float EE_pos[2]){
 	FRCW = u[2][1];	
 }
 
+
+//////////////////////////////////////////////////////////////////////////
+///     CoM estimation
+//////////////////////////////////////////////////////////////////////////
+void comEstimate (void) {
+	// Now move IN the direction of force (force amplification)
+	
+	// u_r[0] is X motion (Fwd+/Bkwd-)
+	// u_r[1] is Y motion (Right+/Left-)
+	// u_r[2] is Z motion (CCW+/CW-)
+	
+	unsigned char u[3][2];
+	float f[3] = {0,0,0};
+	signed int temp;
+	
+	float gainX; // gain in ROBOT's X direction
+	float gainY; // gain in ROBOT's Y direction
+	
+	gainY = 20;
+	gainX = gainY;
+	// Sensor displacement 'away' from robot has dampened so increase the 'fwd/back' gain
+	if (EE[1] > 3) {
+		gainX += 10;
+	}
+		
+	// Get unit direction of sensor displacement
+	float direction[2];
+	float EE_mag = sqrt(pow(EE[0],2) + pow(EE[1],2));
+	direction[0] = EE[0]/EE_mag;
+	direction[1] = EE[1]/EE_mag; 
+	
+	// Sensor 'x' is robot 'y' and vice-versa
+	u_r[0] = -direction[0]*gainX; // -EE[1]*gainX;
+	u_r[1] = -direction[1]*gainY; // -EE[0]*gainY;
+	u_r[2] = 0;
+	
+	// Perform the matrix multiplication J_r * u_r
+	for (int i = 0; i < 3; i++) {
+		for (int j = 0; j < 3; j++) {
+			f[i] += J_r[i][j] * u_r[j];
+		}
+	}
+	
+	// Assign to wheel array
+	for (int i = 0; i < 3; i++){
+		temp = (int)roundf(f[i]);
+		
+		if(temp > 255){
+			temp = 255;
+		}
+		else if(temp < -255){
+			temp = -255;
+		}
+		if(temp >= 0){
+			u[i][0] = 0;
+			u[i][1] = abs(temp);
+		}
+		else{
+			u[i][0] = abs(temp);
+			u[i][1] = 0;
+		}
+	}
+
+	// Front Left
+	FLCW = u[0][1];
+	FLCCW = u[0][0];
+	// Rear
+	RCCW = u[1][0];
+	RCW = u[1][1];
+	//Front Right
+	FRCCW = u[2][0];
+	FRCW = u[2][1];
+}
+
 //================================================================================================
 //                                          Main
 //================================================================================================
 int main(void){
 
 	//float time;
-	int county = 0;
+	int rest_period = 0; // initial resting period
 		
 	mC_init();
-	getHome();
+	getHome(); // Get sensor resting state home config
 	
 	PORTC &= ~BIT(redLED); // Turn OFF redLED
 	PORTC |= BIT(blueLED); // Turn ON blueLED
@@ -599,18 +704,23 @@ int main(void){
 	
 	// Primary Loop
 	while(start == 0){
+		if (rest_period < 40){
+			rest_period += 1;
+			continue;
+		}
+		
 		// ADC read and assign to 'sensor_data'
 		updateSensor();
 		// Calculate force and direction of sensor, assign to 'EE'
 		sensorKinematics(sensor_data);
-		// Move robot based on measured force
-		//if (county > 100){
-			//EE[0] = 0;
-			//EE[1] = 0;
-			//EE[2] = 0;
-		//}
-		controller_test(EE);
-		county += 1;
+		
+		// Default is null-space control mode
+		if (!mode_switch) {
+			nullSpaceControl();
+		}
+		else {
+			//comEstimate();
+		}
 		
 		PORTC  ^= BIT(blueLED);	// Toggle blueLED
 		_delay_ms(100); // Changed from 100 to test which loop is running 11/28/23
@@ -619,18 +729,16 @@ int main(void){
 	PORTC |= BIT(blueLED);		// Turn ON blueLED
 	TCCR3B = (1<<CS32) | (0<<CS31) | (1<<CS30);
 		
-	while (1){
-		// IT DOESNT APPEAR THIS LOOP EVER RUNS... HAVEN'T TESTED IF IT RUNS WHEN SENDING MOTOR COMMANDS
+	// IT DOESNT APPEAR THIS LOOP EVER RUNS... HAVEN'T TESTED IF IT RUNS WHEN SENDING MOTOR COMMANDS.
+	// Temp commenting out just the first two lines of the loop and the loop itself.
+	//while (1){
+		//PORTC ^= BIT(blueLED);		// Toggle blueLED
+		//_delay_ms(100); // Changed from 500 07/31/23
 		
 		// controller_old();
 		//f_desired_position();
 		//controller();				// NOT SURE WHAT THIS DOES ... DOESN'T SEEM TO BE NEEDED WITH CENTRALIZED (MATLAB) CONTROL
-		
-		//updateSensor(alpha);
-
-		PORTC ^= BIT(blueLED);		// Toggle blueLED
-		_delay_ms(100); // Changed from 500 07/31/23
-	}
+	//}
 
 	return 0;
 }

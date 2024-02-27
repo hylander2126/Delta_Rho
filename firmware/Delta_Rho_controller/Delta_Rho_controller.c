@@ -33,7 +33,8 @@ float p4[2] = {0, 0};
 	
 float EE[3] = {0, 0};
 float home[2] = {0, 0};
-	
+float direction[2];
+
 volatile int send_EE[3] = {0, 0, 0};
 volatile int send_sensor[3] = {0, 0, 0};
 	
@@ -50,11 +51,6 @@ volatile unsigned int t_x = 0;
 volatile unsigned int t_o = 0;
 volatile unsigned char n_x = 0;
 volatile unsigned char n_o = 0;
-
-
-void controller(void);
-void f_desired_manipulation(void);
-void f_desired_position(void);
 
 
 ISR(USART1_RX_vect)
@@ -132,13 +128,13 @@ ISR(USART1_RX_vect)
 					//USART1_SerialSend(send_sensor, 3);
 					
 					// SEND EE POSITION (mm)
-					send_EE[0] = (int) (EE[0] * 100);
-					send_EE[1] = (int) (EE[1] * 100);
+					send_EE[0] = (int) (u_r[0] * 100);
+					send_EE[1] = (int) (u_r[1] * 100);
 					USART1_SerialSend(send_EE, 3);
 				break;
 				
 				
-				case(0xD0): // Switch actuation mode -> Write request (108 in decimal)
+				case(0xD0): // Switch actuation mode -> Write request (208 in decimal)
 					mode_switch	= !mode_switch; // Toggle from zero-force mode to driving mode.
 				
 				break;
@@ -157,6 +153,7 @@ ISR(USART1_RX_vect)
 	}	// End of: if start
 	PORTC |= BIT(redLED);
 }
+
 
 float calculateTime(unsigned char *n, unsigned int *timerValue){
 	
@@ -196,267 +193,6 @@ void updateState(signed int* X, signed int *dX, unsigned char* n, unsigned int* 
 	}
 	
 }
-
-void f_desired_manipulation(void){
-	
-	
-	signed int e[3];
-	float qr,qd,qO,cq,sq;
-	float e_o[3];
-	int rx = 72;
-	float PD[3];
-	float F[2];
-	
-	//====================================================================================================================================
-	// Robot 1
-	
-	//static float J[6][3] = {{0.3079,-0.0611,-0.0031},{0.0049,0.3452,0.0006},{0.3325,-0.0020,-0.0001},{-0.0394,0.2388,-0.0047},{0.3596,0.0631,0.0032},{0.0345,0.4161,0.0041}};
-	static float J_[4][3] = {{0.5,0,-0.0081},{0,0.5,-0.0014},{0.5,0,0.0081},{0,0.5,0.0014}};
-	
-	//////===================================================================
-	////// Robot 2
-	////
-	//////static float J[6][3] = {{0.3079,-0.0611,-0.0031},{0.0049,0.3452,0.0006},{0.3325,-0.0020,-0.0001},{-0.0394,0.2388,-0.0047},{0.3596,0.0631,0.0032},{0.0345,0.4161,0.0041}};
-	//static float J_[4][3] = {{0.5,0,-0.0005},{0,0.5,-0.005},{0.5,0,0.0005},{0,0.5,0.005}};
-	////
-	////===================================================================
-	// Robot 3
-	
-	//static float J[6][3] = {{0.3079,-0.0611,-0.0031},{0.0049,0.3452,0.0006},{0.3325,-0.0020,-0.0001},{-0.0394,0.2388,-0.0047},{0.3596,0.0631,0.0032},{0.0345,0.4161,0.0041}};
-	//static float J_[4][3] = {{0.5,0,0.005},{0,0.5,0.0054},{0.5,0,0.0050},{0,0.5,-0.0054}};
-	
-	//===================================================================================================================================
-	
-	qr = 0.0175*x[2];
-	qd = 0.0175*xd[2];
-	qO = 0.0175*xO[2];
-	
-	
-	e[0] = xd[0] - xO[0];
-	e[1] = xd[1] - xO[1];
-	
-	cq = cos(qO);
-	sq = sin(qO);
-	
-	e_o[0] = e[0]*cq + e[1]*sq;
-	e_o[1] = e[1]*cq - e[0]*sq;
-	e_o[2] = qd - qO;
-	
-	PD[0] = Kp*e_o[0];
-	PD[1] = Kp*e_o[1];
-	PD[2] = Kp*e_o[2];
-	
-	
-	F[0] =  J_[0][0]*PD[0] + J_[0][1]*PD[1] + J_[0][2]*PD[2];
-	F[1] =  J_[1][0]*PD[0] + J_[1][1]*PD[1] + J_[1][2]*PD[2];
-	
-	
-	cq = cos(qO - qr);
-	sq = sin(qO - qr);
-	
-	
-	F_R[0] = cq*F[0] - sq*F[1];
-	F_R[1] = sq*F[0] + cq*F[1];
-	F_R[2] = rx*F_R[1];	
-}
-
-void f_desired_position(void){
-
-	signed int e[2];
-	double qr,qd;
-	double cqr,sqr;
-	double e_r[3], de_r[3];
-	
-	//e[0] = xd[0] - x[0];
-	//e[1] =xd[1] - x[1];
-	//e[2]=xd[2]-x[2];
-	//
-	//qr = 0.0175*x[2];
-	//qd = 0.0175*xd[2];
-	//
-	//cqr = cos(qr);
-	//sqr = sin(qr);
-	//
-	//
-	//e_r[0] = cqr*e[0]+sqr*e[1];
-	////e_r[0] += sqr*e[1];
-	//
-	//e_r[1] = -sqr*e[0]+cqr*e[1];
-	////e_r[1] += cqr*e[1];
-	//
-	//e_r[2] = xd[2] - x[2];
-//
-	//
-	//
-	//de_r[0] = -cqr*(dx[0])- sqr*(dx[1]);
-	//de_r[1] = sqr*(dx[0])- cqr*(dx[1]);
-	//de_r[2] = -dx[2];
-	//
-	//
-	//F_R[0] = 10*e_r[0]; //+ 2*de_r[0];
-	//F_R[1] = 10*e_r[1]; //+ 2*de_r[1];
-	//F_R[2] = 10*e_r[2]; //+ 2*de_r[2];
-	
-	F_R[0]=in[0];
-	F_R[1]=in[1];
-	F_R[2]=in[2];
-	
-	out[0] = (signed int)(F_R[0]);
-	out[1] = (signed int)(F_R[1]);
-	out[2] = (signed int)(F_R[2]);	
-	
-}
-
-void controller (void){
-	
-	
-	int i;
-	
-	unsigned char u[3][2];
-	float f[3] = {0,0,0};
-	signed int temp;
-		
-	//0.01788*
-	f[0] = -1.732*F_R[0] + F_R[1] -F_R[2];
-	f[1] = -2.0*F_R[1] -F_R[2];
-	f[2] =  1.732*F_R[0] + F_R[1] -F_R[2];
-	
-	
-	for (i = 0; i < 3; i++){
-		
-		temp = (int)roundf(f[i]);
-		
-		if( temp > 255  ) {
-			temp = 255;
-		}
-		else if(temp < -255){
-			temp = -255;
-		}
-		
-		if(temp >= 0){
-			u[i][0] = 0;
-			u[i][1] = abs(temp);
-		}
-		
-		else{
-			u[i][0] = abs(temp);
-			u[i][1] = 0;
-		}
-		
-		
-	}
-	// Front Left
-	FLCW = u[0][1];
-	FLCCW = u[0][0];
-	// Rear
-	RCCW = u[1][0];
-	RCW = u[1][1];
-	//Front Right
-	FRCCW = u[2][0];
-	FRCW = u[2][1];
-	
-	
-}
-
-void controller_old(void){
-	int i;
-	
-	
-	unsigned char u[3][2];
-	
-	
-	double e[3];
-	
-	float f[3] = {0,0,0};
-	
-	
-	float eq, sq, cq, C1, C2, C3, C4;
-	
-	
-	signed int temp;
-
-	
-	
-	
-	for(i=0; i<3 ; i++){
-		
-		e[i] = (double) (xd[i] - x[i]);
-	}
-	
-	
-	
-	sq = sin(0.01745*x[2]);
-	
-	cq = cos(0.01745*x[2]);
-	
-	
-	eq = 0.01745*e[2];
-	
-	
-
-	C1 = (sq + (1.7321*cq));
-	
-	C2 = (cq - (1.7321*sq));
-	
-	C3 = (sq - (1.7321*cq));
-	
-	C4 = (cq + (1.7321*sq));
-
-	
-	
-
-	f[0] = eq - e[0]*C1 + e[1]*C2;
-
-	f[1] = eq - 2*e[1]*cq + 2*e[0]*sq;
-
-	f[2] = eq - e[0]*C3 + e[1]*C4;
-	
-
-	
-	for (i = 0; i < 3; i++){
-		
-		temp = (int)roundf(f[i]);
-		
-		if( temp > 255  ) {
-			temp = 255;
-		}
-		else if(temp < -255){
-			temp = -255;
-		}
-		
-		if(temp >= 0){
-			u[i][0] = 0;
-			u[i][1] = abs(temp);
-		}
-		
-		else{
-			u[i][0] = abs(temp);
-			u[i][1] = 0;
-		}
-		
-		
-	}
-	// Front Left
-	OCR1BL =u[0][1];
-	OCR1AL = u[0][0];
-	// Rear
-	OCR0A = u[1][0];
-	OCR0B = u[1][1];
-	//Front Right
-	OCR2B = u[2][1];
-	OCR2A = u[2][0];
-}
-
-
-ISR(TIMER3_COMPA_vect)
-{
-	n_x++;
-	n_o++;
-	
-	//f_desired_position();
-	//controller();
-}
-
 
 //////////////////////////////////////////////////////////////////////////
 ///     Read sensor and process to radians (or degrees)
@@ -625,22 +361,21 @@ void comEstimate (void) {
 	float gainX; // gain in ROBOT's X direction
 	float gainY; // gain in ROBOT's Y direction
 	
-	gainY = 20;
+	gainY = 120;
 	gainX = gainY;
 	// Sensor displacement 'away' from robot has dampened so increase the 'fwd/back' gain
 	if (EE[1] > 3) {
-		gainX += 10;
+		gainX *= 1.3;
 	}
 		
 	// Get unit direction of sensor displacement
-	float direction[2];
 	float EE_mag = sqrt(pow(EE[0],2) + pow(EE[1],2));
 	direction[0] = EE[0]/EE_mag;
 	direction[1] = EE[1]/EE_mag; 
 	
 	// Sensor 'x' is robot 'y' and vice-versa
-	u_r[0] = -direction[0]*gainX; // -EE[1]*gainX;
-	u_r[1] = -direction[1]*gainY; // -EE[0]*gainY;
+	u_r[0] = -EE[1]*20; // -direction[1]*gainX;
+	u_r[1] = -EE[0]*20; // direction[0]*gainY;
 	u_r[2] = 0;
 	
 	// Perform the matrix multiplication J_r * u_r
@@ -699,9 +434,6 @@ int main(void){
 	TCCR3B = (0<<CS32) | (0<<CS31) | (0<<CS30);
 	sei();
 	
-	//n_x = 15;
-	//t_x = 22;
-	
 	// Primary Loop
 	while(start == 0){
 		if (rest_period < 40){
@@ -719,7 +451,7 @@ int main(void){
 			nullSpaceControl();
 		}
 		else {
-			//comEstimate();
+			comEstimate();
 		}
 		
 		PORTC  ^= BIT(blueLED);	// Toggle blueLED

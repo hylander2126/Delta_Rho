@@ -44,7 +44,9 @@ float u_r[3] = {0, 0, 0};
 
 // Hyland - Jacobian
 float J_r[3][3] = {{0.8192, 0.5736, -0.1621}, {0.0, -1.0, -1.36}, {-0.8192, 0.5736, -0.1621}};
-//
+
+// Hyland - State estimate
+float send_X[3];
 
 
 volatile unsigned int t_x = 0;
@@ -83,17 +85,17 @@ ISR(USART1_RX_vect)
 					USART1_SerialSend(x, 3);
 				break;
 				
-				case(0x90): // Current position -> Write request (144)
-					updateState(x,dx,&n_x,&t_x);
-				break;
+				//case(0x90): // Current position -> Write request (144)
+					//updateState(x,dx,&n_x,&t_x);
+				//break;
 				
 				case(0x20): // Object position -> Read request (32)
 					USART1_SerialSend(xO, 3);
 				break;
 				
-				case(0xA0): // Object position -> Write request (160)
-					updateState(xO,dxO,&n_o,&t_o);
-				break;
+				//case(0xA0): // Object position -> Write request (160)
+					//updateState(xO,dxO,&n_o,&t_o);
+				//break;
 				
 				case(0x30): // Send "out" data (48)
 					USART1_SerialSend(out, 3);
@@ -128,9 +130,15 @@ ISR(USART1_RX_vect)
 					//USART1_SerialSend(send_sensor, 3);
 					
 					// SEND EE POSITION (mm)
-					send_EE[0] = (int) (u_r[0] * 100);
-					send_EE[1] = (int) (u_r[1] * 100);
-					USART1_SerialSend(send_EE, 3);
+					//send_EE[0] = (int) (u_r[0] * 100);
+					//send_EE[1] = (int) (u_r[1] * 100);
+					//USART1_SerialSend(send_EE, 3);
+					
+					// SEND STATE ESTIMATE (mm)
+					send_X[0] = (int) (x[0] * 100);
+					send_X[1] = (int) (x[1] * 100);
+					send_X[2] = (int) (x[2] * 100);
+					USART1_SerialSend(send_X, 3);
 				break;
 				
 				
@@ -192,6 +200,26 @@ void updateState(signed int* X, signed int *dX, unsigned char* n, unsigned int* 
 		((signed int*)dX)[i] = (((int *)X[i]) - X_old);
 	}
 	
+}
+
+
+//////////////////////////////////////////////////////////////////////////
+///     Estimate robot state at every time step
+//////////////////////////////////////////////////////////////////////////
+void stateEstimator(float* x, char* n, int* timerValue){
+	
+	float deltaT;
+	float dx[3];
+	
+	deltaT = calculateTime(n, timerValue);
+
+	dx[0] = u_r[0]*deltaT;
+	dx[1] = u_r[1]*deltaT;
+	dx[2] = u_r[2]*deltaT;
+	
+	x[0] += dx[0];
+	x[1] += dx[1];
+	x[2] += dx[2];
 }
 
 //////////////////////////////////////////////////////////////////////////
@@ -436,6 +464,10 @@ int main(void){
 	
 	// Primary Loop
 	while(start == 0){
+		
+		// Run state estimator
+		stateEstimator(x, &n_x, &t_o);
+		
 		if (rest_period < 40){
 			rest_period += 1;
 			continue;

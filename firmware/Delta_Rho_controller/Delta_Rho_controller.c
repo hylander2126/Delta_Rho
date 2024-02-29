@@ -47,6 +47,7 @@ float J_r[3][3] = {{0.8192, 0.5736, -0.1621}, {0.0, -1.0, -1.36}, {-0.8192, 0.57
 
 // Hyland - State estimate
 float send_X[3];
+float time = 0;
 
 
 volatile unsigned int t_x = 0;
@@ -57,7 +58,7 @@ volatile unsigned char n_o = 0;
 
 ISR(USART1_RX_vect)
 {
-	char i;
+	//char i;
 	char data, address;
 	unsigned char requestedID, requestedCode;
 	
@@ -86,7 +87,7 @@ ISR(USART1_RX_vect)
 				break;
 				
 				//case(0x90): // Current position -> Write request (144)
-					//updateState(x,dx,&n_x,&t_x);
+					updateState(x,dx,&n_x,&t_x);
 				//break;
 				
 				case(0x20): // Object position -> Read request (32)
@@ -94,7 +95,7 @@ ISR(USART1_RX_vect)
 				break;
 				
 				//case(0xA0): // Object position -> Write request (160)
-					//updateState(xO,dxO,&n_o,&t_o);
+					updateState(xO,dxO,&n_o,&t_o);
 				//break;
 				
 				case(0x30): // Send "out" data (48)
@@ -135,9 +136,12 @@ ISR(USART1_RX_vect)
 					//USART1_SerialSend(send_EE, 3);
 					
 					// SEND STATE ESTIMATE (mm)
-					send_X[0] = (int) (x[0] * 100);
-					send_X[1] = (int) (x[1] * 100);
-					send_X[2] = (int) (x[2] * 100);
+					//send_X[0] = (int) (x[0] * 100);
+					//send_X[1] = (int) (x[1] * 100);
+					//send_X[2] = (int) (x[2] * 100);
+					send_X[0] = (int) (u_r[0] * 100.00);
+					send_X[1] = (int) (u_r[1] * 100.00);
+					send_X[2] = (int) (u_r[2] * 100.00);
 					USART1_SerialSend(send_X, 3);
 				break;
 				
@@ -163,9 +167,9 @@ ISR(USART1_RX_vect)
 }
 
 
-float calculateTime(unsigned char *n, unsigned int *timerValue){
+float calculateTime(unsigned char *n, unsigned int *timerValue, float time){
 	
-	float time = 0;
+	//float time = 0;
 	unsigned int CurrentTimer;
 	
 	CurrentTimer = TCNT3;
@@ -183,11 +187,11 @@ float calculateTime(unsigned char *n, unsigned int *timerValue){
 void updateState(signed int* X, signed int *dX, unsigned char* n, unsigned int* timerValue){
 	
 	char i;
-	float time;
+	//float time;
 	signed int X_old;
 	unsigned char regl, regh;
 	
-	time = calculateTime(n, timerValue);
+	//time = calculateTime(n, timerValue);
 	
 	
 	for(i=0;i<3;i++){
@@ -206,12 +210,12 @@ void updateState(signed int* X, signed int *dX, unsigned char* n, unsigned int* 
 //////////////////////////////////////////////////////////////////////////
 ///     Estimate robot state at every time step
 //////////////////////////////////////////////////////////////////////////
-void stateEstimator(float* x, char* n, int* timerValue){
+void stateEstimator(char* n, int* timerValue){
 	
 	float deltaT;
 	float dx[3];
 	
-	deltaT = calculateTime(n, timerValue);
+	deltaT = calculateTime(n, timerValue, time);
 
 	dx[0] = u_r[0]*deltaT;
 	dx[1] = u_r[1]*deltaT;
@@ -466,7 +470,8 @@ int main(void){
 	while(start == 0){
 		
 		// Run state estimator
-		stateEstimator(x, &n_x, &t_o);
+		//stateEstimator(x, &n_x, &t_o, time);
+		stateEstimator(&n_x, &t_o);
 		
 		if (rest_period < 40){
 			rest_period += 1;

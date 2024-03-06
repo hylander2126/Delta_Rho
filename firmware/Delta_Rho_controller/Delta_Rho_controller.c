@@ -466,7 +466,7 @@ int main(void){
 	while(start == 0){
 		
 		// Run state estimator
-		stateEstimator(x, &n_x, &t_o);
+		//stateEstimator(x, &n_x, &t_o);
 		
 		if (rest_period < 40){
 			rest_period += 1;
@@ -482,9 +482,9 @@ int main(void){
 		if (!mode_switch) {
 			nullSpaceControl();
 		}
-		else {
-			comEstimate();
-		}
+		//else {
+			//comEstimate();
+		//}
 		
 		PORTC  ^= BIT(blueLED);	// Toggle blueLED
 		_delay_ms(100); // Changed from 100 to test which loop is running 11/28/23

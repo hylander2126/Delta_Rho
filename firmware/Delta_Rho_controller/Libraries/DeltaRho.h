@@ -12,9 +12,12 @@
 #include <string.h>
 
 
-#include <\\research.wpi.edu\srl\Projects\Ant\Delta_Rho\Code\Libraries\USART0.h>
-#include <\\research.wpi.edu\srl\Projects\Ant\Delta_Rho\Code\Libraries\USART1.h>
-#include <\\research.wpi.edu\srl\Projects\Ant\Delta_Rho\Code\Libraries\ADC.h>
+//#include <\\research.wpi.edu\srl\Projects\Ant\Delta_Rho\Code\Libraries\USART0.h>
+//#include <\\research.wpi.edu\srl\Projects\Ant\Delta_Rho\Code\Libraries\USART1.h>
+//#include <\\research.wpi.edu\srl\Projects\Ant\Delta_Rho\Code\Libraries\ADC.h>
+#include <ADC.h>
+#include <USART0.h>
+#include <USART1.h>
 
 
 #define BIT(x)		(1<<(x))

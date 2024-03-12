@@ -1,7 +1,8 @@
-#include <\\research.wpi.edu\srl\Projects\Ant\Delta_Rho\Code\Libraries\DeltaRho.h>
+//#include <\\research.wpi.edu\srl\Projects\Ant\Delta_Rho\Code\Libraries\DeltaRho.h>
 
 #include <math.h>
-// #include <Libraries/DeltaRho.h>
+#include <time.h>
+#include <DeltaRho.h>
 
 // REMEMBER TO CHANGE ROBOTid FOR EACH ROBOT
 #define RobotID 3
@@ -46,7 +47,8 @@ float u_r[3] = {0, 0, 0};
 float J_r[3][3] = {{0.8192, 0.5736, -0.1621}, {0.0, -1.0, -1.36}, {-0.8192, 0.5736, -0.1621}};
 
 // Hyland - State estimate
-float send_X[3];
+float curr_X[3] = {0, 0, 0};
+volatile int send_X[3] = {0, 0, 0};
 
 
 volatile unsigned int t_x = 0;
@@ -130,14 +132,14 @@ ISR(USART1_RX_vect)
 					//USART1_SerialSend(send_sensor, 3);
 					
 					// SEND EE POSITION (mm)
-					//send_EE[0] = (int) (u_r[0] * 100);
-					//send_EE[1] = (int) (u_r[1] * 100);
+					//send_EE[0] = (int) (u_r[0]); // * 100);
+					//send_EE[1] = (int) (u_r[1]); // * 100);
 					//USART1_SerialSend(send_EE, 3);
 					
 					// SEND STATE ESTIMATE (mm)
-					send_X[0] = (int) (x[0] * 100);
-					send_X[1] = (int) (x[1] * 100);
-					send_X[2] = (int) (x[2] * 100);
+					send_X[0] = (int) (curr_X[0]); // * 100000);
+					send_X[1] = (int) (curr_X[1]); // * 100000);
+					send_X[2] = (int) (curr_X[2]); // * 100000);
 					USART1_SerialSend(send_X, 3);
 				break;
 				
@@ -206,20 +208,27 @@ void updateState(signed int* X, signed int *dX, unsigned char* n, unsigned int* 
 //////////////////////////////////////////////////////////////////////////
 ///     Estimate robot state at every time step
 //////////////////////////////////////////////////////////////////////////
-void stateEstimator(float* x, char* n, int* timerValue){
+void stateEstimator(float* curr_X, char* n, int* timerValue){
+	
+	float u_r_mag;
+	u_r_mag = sqrt(pow(u_r[0], 2) + pow(u_r[1], 2) + pow(u_r[2], 2));
+	if (u_r_mag < 80){
+		return;
+	}
 	
 	float deltaT;
 	float dx[3];
 	
-	deltaT = calculateTime(n, timerValue);
+	deltaT = .01;
+	//deltaT = calculateTime(n, timerValue);
 
 	dx[0] = u_r[0]*deltaT;
 	dx[1] = u_r[1]*deltaT;
 	dx[2] = u_r[2]*deltaT;
 	
-	x[0] += dx[0];
-	x[1] += dx[1];
-	x[2] += dx[2];
+	curr_X[0] += dx[0];
+	curr_X[1] += dx[1];
+	curr_X[2] += dx[2];
 }
 
 //////////////////////////////////////////////////////////////////////////
@@ -373,6 +382,65 @@ void nullSpaceControl (void) {
 
 
 //////////////////////////////////////////////////////////////////////////
+///     Correct the attitude of the robot using force sensor
+//////////////////////////////////////////////////////////////////////////
+void correctAttitude (void) {
+	
+	// u_r[0] is X motion (Forw+/Backw-)
+	// u_r[1] is Y motion (Right+/Left-)
+	// u_r[2] is Z motion (CCW+/CW-)
+	
+	unsigned char u[3][2];
+	float f[3] = {0,0,0};
+	signed int temp;
+	
+	float gainR = 20; // gain in ROBOT's ROTATIONAL direction
+	
+	// Sensor 'x' is robot 'y' and vice-versa
+	u_r[0] = 0;
+	u_r[1] = 0;
+	u_r[2] = EE[0]*gainR;
+	
+	// Perform the matrix multiplication J_r * u_r
+	for (int i = 0; i < 3; i++) {
+		for (int j = 0; j < 3; j++) {
+			f[i] += J_r[i][j] * u_r[j];
+		}
+	}
+	
+	// Assign to wheel array
+	for (int i = 0; i < 3; i++){
+		temp = (int)roundf(f[i]);
+		
+		if(temp > 255){
+			temp = 255;
+		}
+		else if(temp < -255){
+			temp = -255;
+		}
+		if(temp >= 0){
+			u[i][0] = 0;
+			u[i][1] = abs(temp);
+		}
+		else{
+			u[i][0] = abs(temp);
+			u[i][1] = 0;
+		}
+	}
+
+	// Front Left
+	FLCW = u[0][1];
+	FLCCW = u[0][0];
+	// Rear
+	RCCW = u[1][0];
+	RCW = u[1][1];
+	//Front Right
+	FRCCW = u[2][0];
+	FRCW = u[2][1];
+}
+
+
+//////////////////////////////////////////////////////////////////////////
 ///     CoM estimation
 //////////////////////////////////////////////////////////////////////////
 void comEstimate (void) {
@@ -465,14 +533,13 @@ int main(void){
 	// Primary Loop
 	while(start == 0){
 		
-		// Run state estimator
-		//stateEstimator(x, &n_x, &t_o);
-		
 		if (rest_period < 40){
 			rest_period += 1;
 			continue;
 		}
-		
+
+		// Run state estimator
+		stateEstimator(&curr_X, &n_x, &t_o);						
 		// ADC read and assign to 'sensor_data'
 		updateSensor();
 		// Calculate force and direction of sensor, assign to 'EE'
@@ -481,6 +548,7 @@ int main(void){
 		// Default is null-space control mode
 		if (!mode_switch) {
 			nullSpaceControl();
+			//correctAttitude();
 		}
 		//else {
 			//comEstimate();

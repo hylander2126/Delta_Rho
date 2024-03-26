@@ -5,7 +5,7 @@
 //#include <DeltaRho.h>
 
 // REMEMBER TO CHANGE ROBOTid FOR EACH ROBOT
-#define RobotID 3
+#define RobotID 5 //3
 #define PI 3.14159265358979323846
 
 
@@ -483,7 +483,7 @@ void correctAttitude (PIDController *pid) {
 	float output = pid->Kp * error + pid->Ki * pid->integral + pid->Kd * derivative;
 	pid->prevError = error;
 	
-	// Sensor 'x' is robot 'y' and vice-versa
+	// Update ONLY X (lateral) component of robot motion (FOR TESTING)
 	u_r[0] = output;
 }
 
@@ -535,56 +535,51 @@ int main(void){
 	sei();					// Enable global interrupts
 	PORTC |= BIT(redLED);	// Turn ON redLED	
 	//TCCR3B = (0<<CS32) | (0<<CS31) | (0<<CS30); // IDK what this does
-	
-
-	int rest_period = 1500; // initial resting period
-	int iii = 0;			// iterator
-	PIDController pid;		// PID object
-	double Kp = 20;		// Proportional Gain
-	double Ki = 0; //0.5;		// Integral Gain
-	double Kd = 0; //1;		// Derivative Gain
-	
-	getHome();				// Get sensor resting state home config
-	PID_Init(&pid,Kp,Ki,Kd);// PID controller initialization
+		
+	// PID INITIALIZATIONS (Kp, Ki, Kd)
+	PIDController pid_com;
+	PID_Init(&pid_com, 20, 0, 0);
 	
 	PIDController pid_attitude;
 	PID_Init(&pid_attitude, .1, 0, .01); // 0.005, .004);
 	
-	
+	int rest_period = 1500; // initial resting period
+	int iii = 0;			// iterator
+
+	getHome();				// Get sensor resting state home config	
+
 	// ===== Primary Loop =====
 	while(start == 0){
 		
 		// Initial period -> rest OR induce motion
-		//if (iii < rest_period){
-			//iii ++;
-			//u_r[2] = 35;
-			//sendMotor();
-			//continue;
-		//}
+		if (iii < rest_period){
+			iii ++;
+			u_r[2] = 35;
+			sendMotor();
+			continue;
+		}
 
-		// Run state estimator
-		//stateEstimator(&n_x, &t_o);						
-		// Calculate force and direction of sensor, assign to 'EE'
+		// Run state estimator (TODO implement this with IMU)
+		//stateEstimator(&n_x, &t_o);
+							
+		// Calculate force and direction of sensor, assign to 'EE' global variable
 		sensorKinematics();
 		
-		// Default mode_switch value is 0. Switch modes via MATLAB control
+		// Default mode_switch value is 0. Switch modes via MATLAB
 		if (!mode_switch) {
-			u_r[0] = 0;
-			u_r[1] = 0;
-			u_r[2] = 0;
 			//comEstimate(&pid);
-			
 			//nullSpaceControl();
-			//correctAttitude(&pid_attitude);
+			
+			correctAttitude(&pid_attitude);
 		}
 		else {
 			//nullSpaceControl();
 			
-			comEstimate(&pid);
+			comEstimate(&pid_com);
 		}
 		
-		// Send all calculated motor commands to motors
-		//sendMotor();
+		// SEND ALL calculated motor commands to motors
+		sendMotor();
 		
 		PORTC ^= BIT(blueLED);	// Toggle blueLED
 		_delay_ms(100);		// Changed from 100 to test which loop is running 11/28/23

@@ -5,7 +5,7 @@
 //#include <DeltaRho.h>
 
 // REMEMBER TO CHANGE ROBOTid FOR EACH ROBOT
-#define RobotID 5 //3
+#define RobotID 3
 #define PI 3.14159265358979323846
 
 
@@ -442,11 +442,7 @@ void nullSpaceControl (void) {
 	// u_r[0] is X motion (Forw+/Backw-)
 	// u_r[1] is Y motion (Right+/Left-)
 	// u_r[2] is Z motion (CCW+/CW-)
-	
-	unsigned char u[3][2];
-	float f[3] = {0,0,0};
-	signed int temp;
-	
+		
 	float gainX; // gain in ROBOT's X direction
 	float gainY; // gain in ROBOT's Y direction
 	
@@ -496,7 +492,7 @@ void comEstimate (PIDController *pid) {
 		// u_r[1] is Y motion (Right+/Left-)
 		// u_r[2] is Z motion (CCW+/CW-)
 		
-	double dt = getDt();
+	//double dt = getDt();
 	Vector2D curr_sensor_direc = {-EE[0], -EE[1]};
 	Vector2D curr_heading = {0,1}; //{u_r[0], u_r[1]};
 	Vector2D x_axis = {0, 1};
@@ -545,7 +541,7 @@ int main(void){
 	
 	int rest_period = 1500; // initial resting period
 	int iii = 0;			// iterator
-
+ 
 	getHome();				// Get sensor resting state home config	
 
 	// ===== Primary Loop =====
@@ -563,14 +559,16 @@ int main(void){
 		//stateEstimator(&n_x, &t_o);
 							
 		// Calculate force and direction of sensor, assign to 'EE' global variable
-		sensorKinematics();
+		//sensorKinematics();
 		
 		// Default mode_switch value is 0. Switch modes via MATLAB
 		if (!mode_switch) {
 			//comEstimate(&pid);
 			//nullSpaceControl();
 			
-			correctAttitude(&pid_attitude);
+			//correctAttitude(&pid_attitude);
+			u_r[1] = 0;
+			u_r[2] = 0;
 		}
 		else {
 			//nullSpaceControl();

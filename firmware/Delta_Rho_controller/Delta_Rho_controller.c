@@ -5,7 +5,7 @@
 //#include <DeltaRho.h>
 
 // REMEMBER TO CHANGE ROBOTid FOR EACH ROBOT
-#define RobotID 3
+#define RobotID 5
 #define PI 3.14159265358979323846
 
 
@@ -156,16 +156,16 @@ ISR(USART1_RX_vect)
 					//send_data[0] = (int) (sensor_data[0] * 180/3.1415);
 					//send_data[1] = (int) (sensor_data[1] * 180/3.1415);
 				// SEND EE POSITION (mm)
-					//send_data[0] = (int) (EE[0] * 100);
-					//send_data[1] = (int) (EE[1] * 100);
+					send_data[0] = (int) (EE[0] * 100);
+					send_data[1] = (int) (EE[1] * 100);
 				// SEND STATE ESTIMATE (mm)
 					//send_data[0] = (int) (curr_X[0]); // * 100000);
 					//send_data[1] = (int) (curr_X[1]); // * 100000);
 					//send_data[2] = (int) (curr_X[2]); // * 100000);
 				// SEND u_r motor command
-					send_data[0] = (int) (u_r[0] * 100);
-					send_data[1] = (int) (u_r[1] * 100);
-					send_data[2] = (int) (u_r[2] *100);
+					//send_data[0] = (int) (u_r[0] * 100);
+					//send_data[1] = (int) (u_r[1] * 100);
+					//send_data[2] = (int) (u_r[2] *100);
 					
 					USART1_SerialSend(send_data, 3);					
 				break;
@@ -544,22 +544,22 @@ int main(void){
  
 	getHome();				// Get sensor resting state home config	
 
+	while (iii < rest_period){
+		iii ++;
+		u_r[2] = 0; //35;
+		sendMotor();
+	}
+	u_r[2] = 0;
+	sendMotor();
+	
 	// ===== Primary Loop =====
 	while(start == 0){
-		
-		// Initial period -> rest OR induce motion
-		if (iii < rest_period){
-			iii ++;
-			u_r[2] = 35;
-			sendMotor();
-			continue;
-		}
 
 		// Run state estimator (TODO implement this with IMU)
 		//stateEstimator(&n_x, &t_o);
 							
 		// Calculate force and direction of sensor, assign to 'EE' global variable
-		//sensorKinematics();
+		sensorKinematics();
 		
 		// Default mode_switch value is 0. Switch modes via MATLAB
 		if (!mode_switch) {
@@ -567,17 +567,14 @@ int main(void){
 			//nullSpaceControl();
 			
 			//correctAttitude(&pid_attitude);
-			u_r[1] = 0;
-			u_r[2] = 0;
 		}
 		else {
 			//nullSpaceControl();
 			
 			comEstimate(&pid_com);
+			// SEND ALL calculated motor commands to motors
+			sendMotor();
 		}
-		
-		// SEND ALL calculated motor commands to motors
-		sendMotor();
 		
 		PORTC ^= BIT(blueLED);	// Toggle blueLED
 		_delay_ms(100);		// Changed from 100 to test which loop is running 11/28/23

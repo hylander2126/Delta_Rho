@@ -1,12 +1,13 @@
-#include <\\research.wpi.edu\srl\Projects\Ant\Delta_Rho\Code\Libraries\DeltaRho.h>
+//#include <\\research.wpi.edu\srl\Projects\Ant\Delta_Rho\Code\Libraries\DeltaRho.h>
+#include "DeltaRho.h"
 
 #include <math.h>
 #include <time.h>
-//#include <DeltaRho.h>
 
 // REMEMBER TO CHANGE ROBOTid FOR EACH ROBOT
-#define RobotID 5
+#define RobotID 6
 #define PI 3.14159265358979323846
+#define NUM_SAMPLES 5 // number of sensor samples for mean filtering
 
 
 volatile signed int xd[3] = {0,0,0};
@@ -30,7 +31,7 @@ volatile unsigned char n_o = 0;
 
 // Hyland added variables
 // Force Sensor
-float sensor_data[2] = {0.0, 0.0};
+float sensor_data[2] = {0, 0};
 const float Links[5] = {25.0, 25.0, 40.0, 40.0, 22.84};
 float p1[2] = {0, 0};
 float p2[2] = {22.84, 0};
@@ -39,6 +40,8 @@ float p4[2] = {0, 0};
 
 float EE[2] = {0, 0};
 float home[2] = {0, 0};
+float sensor_data_samples[2][NUM_SAMPLES]; // 2 sensors, NUM_SAMPLES each
+signed int raw_sensor_data[2] = {0, 0};
 
 volatile int send_data[3] = {0, 0, 0};
 	
@@ -65,6 +68,8 @@ float h1 = 31.13;
 float h2 = 62.25;
 float wheel_r = 19;
 
+// Forward declaration of medianFilter
+float medianFilter(float arr[], int n);
 
 // PID structure
 typedef struct {
@@ -263,13 +268,18 @@ void stateEstimator( char* n, int* timerValue){
 void sensorKinematics(void) { 
 	
 	// Read from registers 0 and 3 for potentiometers 1 and 2 respectively
-	signed int a = ADC_read(0); //  'left' pot (joint 1)
-	signed int b = ADC_read(3); // 'right' pot (joint 2)
+	//signed int a = ADC_read(0);
+	//signed int b = ADC_read(3);
+	
+	// Get median-filtered raw sensor data
+	getSensorData();
+	
+	//int raw_sensor_data[2] = {300, 300};
 	
 	// Map voltage to radians, then apply offset to make '0 degrees' == +x axis
 	float alpha[2];
-	alpha[0] = ((a / 1024.0) * 5.76) - 1.3; // 1.3 rad ~ 74.5 deg (nominal offset)
-	alpha[1] = ((b / 1024.0) * 5.76) - 1.474; // 1.474 rad ~ 84.5 deg (nominal offset)
+	alpha[0] = ((raw_sensor_data[0] / 1024.0) * 5.76) - 1.3; // 1.3 rad ~ 74.5 deg (nominal offset)
+	alpha[1] = ((raw_sensor_data[1] / 1024.0) * 5.76) - 1.474; // 1.474 rad ~ 84.5 deg (nominal offset)
 	
 	
 	float p5[2];
@@ -304,6 +314,47 @@ void sensorKinematics(void) {
 	EE[1] = p5[1] - home[1];
 }
 
+
+//		Get mean-filtered sensor data
+//========================================================================
+void getSensorData(void) {
+	for (int i=0; i<NUM_SAMPLES; i++)	{
+		
+		// Read from registers 0 and 3 for potentiometers 1 and 2 respectively
+		sensor_data_samples[0][i] = ADC_read(0); //  'left' pot (joint 1)
+		sensor_data_samples[1][i] = ADC_read(3); // 'right' pot (joint 2)
+		
+		_delay_ms(10);
+	}
+	
+	// Apply median filter and return raw_sensor_data
+	raw_sensor_data[0] = medianFilter(sensor_data_samples[0], NUM_SAMPLES);
+	raw_sensor_data[1] = medianFilter(sensor_data_samples[1], NUM_SAMPLES);
+}
+
+
+//		Apply median filter to raw sensor data
+//========================================================================
+float medianFilter(float arr[], int n) {
+	// Simple bubble sort
+	for (int i = 0; i < n-1; i++) {
+		for (int j = 0; j < n-i-1; j++) {
+			if (arr[j] > arr[j+1]) {
+				float temp = arr[j];
+				arr[j] = arr[j+1];
+				arr[j+1] = temp;
+			}
+		}
+	}
+	// If number of elements are even
+	if (n % 2 == 0) {
+		return (arr[n/2 - 1] + arr[n/2]) / 2.0;
+	}
+	// If number of elements are odd
+	else {
+		return arr[n/2];
+	}
+}
 
 //		Rotate 2D vector by angle (RADIANS)
 //========================================================================
@@ -384,6 +435,7 @@ void calculateJacobian(float sx, float sy, float J[3][3]) {
 	J[2][1] = J_temp[0][1];
 	J[2][2] = J_temp[0][2];
 }
+
 
 //		Send current signal to motors
 //========================================================================

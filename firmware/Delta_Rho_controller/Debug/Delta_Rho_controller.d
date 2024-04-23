@@ -1,6 +1,5 @@
 Delta_Rho_controller.d Delta_Rho_controller.o: \
- .././Delta_Rho_controller.c \
- \\research.wpi.edu\srl\Projects\Ant\Delta_Rho\Code\Libraries\DeltaRho.h \
+ .././Delta_Rho_controller.c ../Libraries/DeltaRho.h \
  c:\program\ files\ (x86)\atmel\studio\7.0\toolchain\avr8\avr8-gnu-toolchain\avr\include\avr\io.h \
  c:\program\ files\ (x86)\atmel\studio\7.0\toolchain\avr8\avr8-gnu-toolchain\avr\include\avr\sfr_defs.h \
  c:\program\ files\ (x86)\atmel\studio\7.0\toolchain\avr8\avr8-gnu-toolchain\avr\include\inttypes.h \
@@ -22,12 +21,10 @@ Delta_Rho_controller.d Delta_Rho_controller.o: \
  c:\program\ files\ (x86)\atmel\studio\7.0\toolchain\avr8\avr8-gnu-toolchain\avr\include\stdio.h \
  c:\program\ files\ (x86)\atmel\studio\7.0\toolchain\avr8\avr8-gnu-toolchain\lib\gcc\avr\5.4.0\include\stdarg.h \
  c:\program\ files\ (x86)\atmel\studio\7.0\toolchain\avr8\avr8-gnu-toolchain\avr\include\string.h \
- \\research.wpi.edu\srl\Projects\Ant\Delta_Rho\Code\Libraries\USART0.h \
- \\research.wpi.edu\srl\Projects\Ant\Delta_Rho\Code\Libraries\USART1.h \
- \\research.wpi.edu\srl\Projects\Ant\Delta_Rho\Code\Libraries\ADC.h \
+ ../Libraries/ADC.h ../Libraries/USART0.h ../Libraries/USART1.h \
  c:\program\ files\ (x86)\atmel\studio\7.0\toolchain\avr8\avr8-gnu-toolchain\avr\include\time.h
 
-\\research.wpi.edu\srl\Projects\Ant\Delta_Rho\Code\Libraries\DeltaRho.h:
+../Libraries/DeltaRho.h:
 
 c:\program\ files\ (x86)\atmel\studio\7.0\toolchain\avr8\avr8-gnu-toolchain\avr\include\avr\io.h:
 
@@ -71,10 +68,10 @@ c:\program\ files\ (x86)\atmel\studio\7.0\toolchain\avr8\avr8-gnu-toolchain\lib\
 
 c:\program\ files\ (x86)\atmel\studio\7.0\toolchain\avr8\avr8-gnu-toolchain\avr\include\string.h:
 
-\\research.wpi.edu\srl\Projects\Ant\Delta_Rho\Code\Libraries\USART0.h:
+../Libraries/ADC.h:
 
-\\research.wpi.edu\srl\Projects\Ant\Delta_Rho\Code\Libraries\USART1.h:
+../Libraries/USART0.h:
 
-\\research.wpi.edu\srl\Projects\Ant\Delta_Rho\Code\Libraries\ADC.h:
+../Libraries/USART1.h:
 
 c:\program\ files\ (x86)\atmel\studio\7.0\toolchain\avr8\avr8-gnu-toolchain\avr\include\time.h:

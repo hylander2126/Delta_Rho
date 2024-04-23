@@ -173,7 +173,7 @@ void mC_init(void)
 	// AutoTrigger:			Off
 	// AutoTrigger Source:	NA
 	// Interrupt:			Disabled
-	//ADC_Initialize ( 1, 0x09, 1 , 7, 0, 0, 0, 0);
+	ADC_Initialize ( 1, 0x09, 1 , 7, 0, 0, 0, 0);
 	
 	// Baud Rate = 9600
 	// Asynchronous

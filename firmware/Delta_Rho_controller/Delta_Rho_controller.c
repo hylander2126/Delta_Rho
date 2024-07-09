@@ -177,8 +177,8 @@ ISR(USART1_RX_vect)
 					//send_data[0] = (int) (raw_sensor_data.x * 100); // * 180/3.1415);
 					//send_data[1] = (int) (raw_sensor_data.y * 100); // * 180/3.1415);
 				// SEND EE POSITION (mm)
-					//send_data[0] = (int) (EE[0] * 100);
-					//send_data[1] = (int) (EE[1] * 100);
+					send_data[0] = (int) (EE[0] * 100);
+					send_data[1] = (int) (EE[1] * 100);
 				// SEND STATE ESTIMATE (mm)
 					//send_data[0] = (int) (curr_X[0]); // * 100000);
 					//send_data[1] = (int) (curr_X[1]); // * 100000);
@@ -188,8 +188,8 @@ ISR(USART1_RX_vect)
 					//send_data[1] = (int) (u_r[2] * 100);
 					//send_data[2] = (int) (u_r[0] * 100);
 				// SEND CoM control output
-					send_data[0] = (int) (output1 * 100);
-					send_data[1] = (int) (output2 * 100);
+					//send_data[0] = (int) (output1 * 100);
+					//send_data[1] = (int) (output2 * 100);
 					
 					
 					USART1_SerialSend(send_data, 3);					
@@ -269,12 +269,14 @@ void calculateJacobian(float sx, float sy, float J[3][3]) {
 	float h2 = 62.25;
 	float wheel_r = 19;
 	
-	// sx,sy inputs are actually EE pos in {sens} frame
+	// sx,sy inputs are actually EE pos in {sens} frame (9.7, 50.1) by default
 	
 	// Add to EE pos the distance to the robot frame {b}.
 	sy += (36.88 + 10); // 36.88 is {sens} to {b}, 2nd num is empirical correction factor
 	
 	// C is the distance from center of rotation {EE for now} to wheel (FR, FL, R)
+	sx = 9.7;
+	sy = 50.1 + 36.88 + 10;
 	double C[3][2] = {{(w/2 - sx), h1-sy}, {(-w/2 - sx), h1-sy}, {-sx, (-h2-sy)}};
 	
 	float J_temp[3][3];
@@ -587,6 +589,13 @@ float correctAttitude (PIDController *pid_attitude) {
 	float output = pid_attitude->Kp * error + pid_attitude->Ki * pid_attitude->integral + pid_attitude->Kd * derivative;
 	pid_attitude->prevError = error;
 	
+	// Cap output to 30 which is quite fast rotation input
+	if (output > 30){
+		output = 30;
+	}
+	if (output < 30){
+		output = -30;
+	}
 	// Update ONLY X (lateral) component of robot motion (FOR TESTING)
 	//u_r[0] = output;
 	return output;
@@ -653,6 +662,61 @@ void comEstimate (PIDController *pid_com, PIDController *pid_com2, PIDController
 }
 
 
+//		CoM estimate VERSION 2 - Use angle method
+//========================================================================
+void comEstimate2 (PIDController *pid_com_angle, PIDController *pid_attitude) {
+	// Now move IN the direction of force (force amplification)
+	// u_r[0] is Z motion (CCW+/CW-)
+	// u_r[1] is X motion (Fwd+/Bkwd-)
+	// u_r[2] is Y motion (Right+/Left-)
+	
+	Vector2D sensor_direc	= {-EE[0], -EE[1]}; // Opposite of sensor's reading. Flip direction of the EE vector
+	Vector2D robot_heading	= {u_r[1], u_r[2]}; // Robot's command input TODO update this with ACTUAL robot heading from IMU or mocap or encoders
+	Vector2D ref_axis		= {1, 0};			// +x axis for now
+	
+
+	
+	// Catch when force sensor is 'near zero' and sets u_r to 0:
+	float mag_robot_heading = sqrt(pow(robot_heading.x, 2) + pow(robot_heading.y, 2));
+	if (abs(mag_robot_heading) < 0.5) {
+		robot_heading.x = 0;
+		robot_heading.y = 1; }
+	
+	// ----- PID Controller -----
+	// Error is angle between heading and force measurement
+	float e_1 = getAngle(ref_axis, robot_heading);
+	float e_2 = getAngle(ref_axis, sensor_direc);
+	float error = e_2 - e_1; // do i want to also account for the AMOUNT of displacement of sensor EE?
+	
+	// Integral Term
+	pid_com_angle->integral  += error;
+	// Derivative Term
+	float derivative = (error - pid_com_angle->prevError);
+	// PID Output
+	output1  =  pid_com_angle->Kp  * error  +   pid_com_angle->Ki  * pid_com_angle->integral   +   pid_com_angle->Kd  * derivative;
+	// Update prev error to current error
+	pid_com_angle->prevError  = error;
+	
+	Vector2D rotated_output = rotateVector(robot_heading, output1);
+	
+	// Perform attitude correction
+	float att_output = correctAttitude(&pid_attitude);
+	
+	// Assign to control input array
+	float mag_sensor_direc  = sqrt(pow(sensor_direc.x, 2) + pow(sensor_direc.y, 2));
+	if (abs(mag_sensor_direc) < -9) {
+		u_r[0] = 0;
+		u_r[1] = 0;
+		u_r[2] = 0;
+	}
+	else {
+		u_r[0] = 0; // att_output;
+		u_r[1] = rotated_output.x;
+		u_r[2] = rotated_output.y;
+	}
+}
+
+
 //================================================================================================
 //                                          Main
 //================================================================================================
@@ -672,12 +736,14 @@ int main(void){
 	// PID INITIALIZATIONS (Kp, Ki, Kd)
 	PIDController pid_com;
 	PID_Init(&pid_com, 65, 0, 0); // Kp=20
-	
 	PIDController pid_com2;
 	PID_Init(&pid_com2, 65, 0, 0);
 	
+	PIDController pid_com_angle;
+	PID_Init(&pid_com_angle, 1, 0, 0);
+	
 	PIDController pid_attitude;
-	PID_Init(&pid_attitude, .1, 0, .01); // 0.005, .004);
+	PID_Init(&pid_attitude, .1, 0, 0); // 0.005, .004);
 	
 	int rest_period = 1000; // initial resting period
 	int iii = 0;			// iterator
@@ -700,7 +766,7 @@ int main(void){
 			// Induce motion in payload when 'mode switch' is activated
 			while (iii < rest_period){
 				iii ++;
-				u_r[2] = 2200;
+				u_r[2] = 2500;
 				sendMotor();
 			}
 			
@@ -708,12 +774,16 @@ int main(void){
 			// nullSpaceControl();
 			
 			// Perform CoM estimation + Attitude Correction
-			comEstimate(&pid_com, &pid_com2, &pid_attitude);
+			//comEstimate(&pid_com, &pid_com2, &pid_attitude);
+			comEstimate2(&pid_com_angle, &pid_attitude);
 			
 			// SEND ALL calculated motor commands to motors
 			sendMotor();
 		}
+		
+		
 		else {
+			// When not in on-board mode, send an initial 'stop' command
 			iii = 0;
 			if (iii == 0) {
 				u_r[0] = 0;

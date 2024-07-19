@@ -6,7 +6,7 @@
 #include <util/twi.h>
 
 // REMEMBER TO CHANGE ROBOTid FOR EACH ROBOT
-#define RobotID				6
+#define RobotID				4
 #define SLAVE_ADDR			0x08 // I2C Slave Address
 #define PI					3.14159265358979323846
 #define NUM_SAMPLES			5	 // Number of sensor samples for mean filtering
@@ -47,7 +47,7 @@ volatile unsigned char n_o = 0;
 volatile uint32_t overflowCount = 0; // Hyland added/modified this
 
 // I2C Byte Variable
-volatile uint8_t receivedI2C; // Global var to store latest received i2c data
+volatile uint8_t receivedI2C = 0x01; // Global var to store latest received i2c data
 
 // Control Input
 float u_r[3] = {0, 0, 0};
@@ -182,8 +182,8 @@ ISR(USART1_RX_vect)
 					//send_data[0] = (int) (raw_sensor_data.x * 100); // * 180/3.1415);
 					//send_data[1] = (int) (raw_sensor_data.y * 100); // * 180/3.1415);
 				// SEND EE POSITION (mm)
-					send_data[0] = (int) (EE[0] * 100);
-					send_data[1] = (int) (EE[1] * 100);
+					//send_data[0] = (int) (EE[0] * 100);
+					//send_data[1] = (int) (EE[1] * 100);
 				// SEND STATE ESTIMATE (mm)
 					//send_data[0] = (int) (curr_X[0]); // * 100000);
 					//send_data[1] = (int) (curr_X[1]); // * 100000);
@@ -195,6 +195,9 @@ ISR(USART1_RX_vect)
 				// SEND CoM control output
 					//send_data[0] = (int) (output1 * 100);
 					//send_data[1] = (int) (output2 * 100);
+				// SEND I2C DATA from esp-cam
+					send_data[0] = (int) (receivedI2C);
+					send_data[1] = (int) (receivedI2C);
 					
 					
 					USART1_SerialSend(send_data, 3);					
@@ -235,7 +238,7 @@ ISR(TWI_vect) {
 		case TW_SR_DATA_ACK:  // Data received, ACK returned
 			// Read data from TWDR (data register)
 			receivedI2C = TWDR;
-			processData(receivedI2C);  // Process or store your received data
+			//processData(receivedI2C);  // Process or store your received data
 			TWCR |= (1 << TWINT) | (1 << TWEA);  // Clear interrupt flag, prepare to receive more data
 		break;
 
@@ -254,7 +257,7 @@ ISR(TWI_vect) {
 void i2c_init(void) {
 	TWAR = SLAVE_ADDR << 1;		// Set slave address, shift needed for address bits
 	TWCR = (1 << TWEN) | (1 << TWIE) | (1 << TWEA); // Enable TWI, interrupt, and ACK bit
-	sei(); // Enable global interrupts
+	//sei(); // Enable global interrupts
 }
 
 //		Process incoming I2C data

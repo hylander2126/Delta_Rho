@@ -10,7 +10,7 @@
 
 // REMEMBER TO CHANGE ROBOTid FOR EACH ROBOT
 #define RobotID				4
-#define I2C_ADDR			0x08 // I2C Slave Address
+#define I2C_ADDR			0x08 // I2C Slave Address *** Pin 1 is SCL***
 #define PI					3.14159265358979323846
 #define NUM_SAMPLES			5	 // Number of sensor samples for mean filtering
 #define PULSE_VOLTAGE		255  // or 100?
@@ -270,7 +270,7 @@ unsigned char TWI_Act_On_Failure_In_Last_Transmission ( unsigned char TWIerrorMs
 	
 	// This very simple example puts the error code on PORTB and restarts the transceiver with
 	// all the same data in the transmission buffers.
-	receivedI2C = TWIerrorMsg;
+	//receivedI2C = TWIerrorMsg;
 	TWI_Start_Transceiver();
 	
 	return TWIerrorMsg;
@@ -892,7 +892,7 @@ int main(void){
 		_delay_ms(100);		// Changed from 100 to test which loop is running 11/28/23
 	}
 	
-	PORTC |= BIT(blueLED);		// Turn ON blueLED
+	//PORTC |= BIT(blueLED);		// Turn ON blueLED
 	TCCR3B = (1<<CS32) | (0<<CS31) | (1<<CS30);
 		
 	return 0;

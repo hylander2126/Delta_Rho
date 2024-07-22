@@ -5,6 +5,7 @@
 #include <util/delay.h>
 #include <avr/sleep.h>
 
+#include <time.h>
 #include <stdlib.h>
 #include <math.h>
 #include <stdint.h>

@@ -1,17 +1,28 @@
 //#include <\\research.wpi.edu\srl\Projects\Ant\Delta_Rho\Code\Libraries\DeltaRho.h>
 #include "DeltaRho.h"
+//#include "I2CSlave.h"
 
 #include <math.h>
 #include <time.h>
 #include <util/twi.h>
+#include "TWI_slave.h"
+#include "avr/sleep.h"
 
 // REMEMBER TO CHANGE ROBOTid FOR EACH ROBOT
 #define RobotID				4
-#define SLAVE_ADDR			0x08 // I2C Slave Address
+#define I2C_ADDR			0x08 // I2C Slave Address
 #define PI					3.14159265358979323846
 #define NUM_SAMPLES			5	 // Number of sensor samples for mean filtering
 #define PULSE_VOLTAGE		255  // or 100?
 #define THRESHOLD_VOLTAGE	80	 // Below this voltage, motors may not move
+// Enable Power Management  - TESTING!!!
+#define POWER_MANAGEMENT_ENABLED
+
+// Handle TWI (i2c) error
+unsigned char TWI_Act_On_Failure_In_Last_Transmission ( unsigned char TWIerrorMsg );
+// I2C Byte Variable
+volatile uint8_t receivedI2C = 0x02; // Global var to store latest received i2c data
+unsigned char messageBuf[TWI_BUFFER_SIZE];
 
 // PID structure
 typedef struct {
@@ -46,9 +57,6 @@ volatile unsigned char n_x = 0;
 volatile unsigned char n_o = 0;
 volatile uint32_t overflowCount = 0; // Hyland added/modified this
 
-// I2C Byte Variable
-volatile uint8_t receivedI2C = 0x01; // Global var to store latest received i2c data
-
 // Control Input
 float u_r[3] = {0, 0, 0};
 float output1;
@@ -58,9 +66,7 @@ float output2;
 float Links[5] = {25.0, 25.0, 40.0, 40.0, 22.84};
 float EE[2] = {0, 0};
 Vector2D home = {0, 0}; // {9.7, 50.1}; // TEMP hard-code from geometric analysis
-//signed int raw_sensor_data[2] = {0, 0};
 Vector2D raw_sensor_data = {729.211, 418.9086}; // Hard-coded voltages representing 120 and 60 degs
-volatile int send_data[3] = {0, 0, 0};
 	
 // Mode Toggle (binary for now)
 int mode_switch = 0;
@@ -68,6 +74,9 @@ int mode_switch = 0;
 // State estimate
 float curr_X[3] = {0, 0, 0};
 
+// For sending data via XBee
+volatile int send_data[3] = {0, 0, 0};
+	
 // Timer function
 double t = 0;
 double t_run = 0;
@@ -196,8 +205,8 @@ ISR(USART1_RX_vect)
 					//send_data[0] = (int) (output1 * 100);
 					//send_data[1] = (int) (output2 * 100);
 				// SEND I2C DATA from esp-cam
-					send_data[0] = (int) (receivedI2C);
-					send_data[1] = (int) (receivedI2C);
+					send_data[0] = (int) receivedI2C;
+					send_data[1] = (int) receivedI2C;
 					
 					
 					USART1_SerialSend(send_data, 3);					
@@ -233,39 +242,39 @@ ISR(TIMER3_COMPA_vect) {
 }
 
 
-ISR(TWI_vect) {
-	switch(TW_STATUS) {
-		case TW_SR_DATA_ACK:  // Data received, ACK returned
-			// Read data from TWDR (data register)
-			receivedI2C = TWDR;
-			//processData(receivedI2C);  // Process or store your received data
-			TWCR |= (1 << TWINT) | (1 << TWEA);  // Clear interrupt flag, prepare to receive more data
-		break;
 
-		case TW_SR_STOP:  // Stop or repeated start condition received
-			TWCR |= (1 << TWINT) | (1 << TWEA);  // Clear interrupt flag, prepare for new start
-		break;
-
-		default:
-			TWCR |= (1 << TWINT) | (1 << TWEA);  // Default case, prepare for next transmission
-		break;
-	}
-}
 // =======================================================================
 // =======================     I2C SETUP     =============================
 // =======================================================================
-void i2c_init(void) {
-	TWAR = SLAVE_ADDR << 1;		// Set slave address, shift needed for address bits
-	TWCR = (1 << TWEN) | (1 << TWIE) | (1 << TWEA); // Enable TWI, interrupt, and ACK bit
-	//sei(); // Enable global interrupts
-}
 
-//		Process incoming I2C data
+//		Receive I2C Data
 //========================================================================
-void processData(uint8_t data) {
-	// Implement data processing logic here, e.g., storing in a buffer or handling commands
+void I2C_received(uint8_t received_data) {
+	receivedI2C = received_data;
+	PORTC ^= BIT(blueLED);	// Toggle blueLED
 }
 
+//		Receive I2C Data
+//========================================================================
+void I2C_requested() {
+	I2C_transmitByte(receivedI2C);
+}
+
+//		I2C Error Handling Function
+//========================================================================
+unsigned char TWI_Act_On_Failure_In_Last_Transmission ( unsigned char TWIerrorMsg )
+{
+	// A failure has occurred, use TWIerrorMsg to determine the nature of the failure
+	// and take appropriate actions.
+	// Se header file for a list of possible failures messages.
+	
+	// This very simple example puts the error code on PORTB and restarts the transceiver with
+	// all the same data in the transmission buffers.
+	receivedI2C = TWIerrorMsg;
+	TWI_Start_Transceiver();
+	
+	return TWIerrorMsg;
+}
 
 // ===========================================================================
 // ========================     MOTOR FUNCTIONS     ==========================
@@ -767,12 +776,25 @@ int main(void){
 	// Initialize micro controller
 	mC_init();
 	
+	// Initialize TWI module for slave operation. Include address and/or enable General Call
+	TWI_Slave_Initialise((unsigned char)((0x08<<TWI_ADR_BITS) | (TRUE<<TWI_GEN_BIT) )); // TRUE
+	
+	sei();					// Enable global interrupts
+	// Start the TWI transceiver to enable reception of the first command from TWI master
+	TWI_Start_Transceiver();
+	
+	
+	// Set received/requested callbacks
+	//I2C_setCallbacks(I2C_received, I2C_requested);
+	// Initialize I2C
+	//I2C_init(I2C_ADDR);
+	
 	// Start the timer
 	TCNT3H = 0;
 	TCNT3L = 0;
 	TIMSK3 |= (1<<TOIE3);	// Enable Timer3 overflow interrupt - ChatGPT advised
-	sei();					// Enable global interrupts
-	PORTC |= BIT(redLED);	// Turn ON redLED	
+	PORTC |= BIT(redLED);	// Turn ON redLED
+	
 	////TCCR3B = (0<<CS32) | (0<<CS31) | (0<<CS30); // IDK what this does
 		
 	// PID INITIALIZATIONS (Kp, Ki, Kd)
@@ -794,6 +816,36 @@ int main(void){
 	
 	// ====== Primary Loop ======
 	while(start == 0){
+		
+		// TEMP
+		
+		
+		
+		// Check if the TWI Transceiver has completed an operation.
+		if ( ! TWI_Transceiver_Busy() ) {
+			// Check if the last operation was successful
+			if ( TWI_statusReg.lastTransOK ) {
+				// Check if the last operation was a reception
+				if ( TWI_statusReg.RxDataInBuf ) {
+					PORTC ^= BIT(blueLED);	// Toggle blueLED
+					TWI_Get_Data_From_Transceiver(messageBuf, 2);
+					receivedI2C = messageBuf[0];
+				}
+				else { // Ends up here if the last operation was a transmission
+					asm("nop");   // Put own code here.
+					TWI_Act_On_Failure_In_Last_Transmission( TWI_Get_State_Info() );
+				}
+				// Check if the TWI Transceiver has already been started.
+				// If not then restart it to prepare it for new receptions.
+				if ( ! TWI_Transceiver_Busy() ) {
+					TWI_Start_Transceiver();
+				}
+			}
+			else { // Ends up here if the last operation completed unsuccessfully
+				//TWI_Act_On_Failure_In_Last_Transmission( TWI_Get_State_Info() );
+				int tempt = 1;
+			}
+		}
 		
 		// Run state estimator (TODO implement this with IMU)
 		//stateEstimator(&n_x, &t_o);
@@ -836,7 +888,7 @@ int main(void){
 			}
 		}
 		
-		PORTC ^= BIT(blueLED);	// Toggle blueLED
+		//PORTC ^= BIT(blueLED);	// Toggle blueLED
 		_delay_ms(100);		// Changed from 100 to test which loop is running 11/28/23
 	}
 	

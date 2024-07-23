@@ -21,7 +21,7 @@
 // Handle TWI (i2c) error
 unsigned char TWI_Act_On_Failure_In_Last_Transmission ( unsigned char TWIerrorMsg );
 // I2C Byte Variable
-volatile uint8_t receivedI2C = 0x02; // Global var to store latest received i2c data
+volatile uint8_t receivedI2C = 0x02; // Global var to store latest received i2c data -x02 default value
 unsigned char messageBuf[TWI_BUFFER_SIZE];
 
 // PID structure
@@ -768,6 +768,37 @@ void comEstimate2 (PIDController *pid_com_angle, PIDController *pid_attitude) {
 }
 
 
+void runTWI (void){
+	// Check if the TWI Transceiver has completed an operation.
+	if ( ! TWI_Transceiver_Busy() ) {
+		// Check if the last operation was successful
+		if ( TWI_statusReg.lastTransOK ) {
+			// Check if the last operation was a reception
+			if ( TWI_statusReg.RxDataInBuf ) {
+				PORTC ^= BIT(blueLED);	// Toggle blueLED
+				TWI_Get_Data_From_Transceiver(messageBuf, 4);
+				messageBuf[5] = '\0'; // Null-terminate the string
+				//receivedI2C = messageBuf[0];
+				receivedI2C = atoi((char*)messageBuf);
+			}
+			else { // Ends up here if the last operation was a transmission
+				asm("nop");   // Put own code here.
+				TWI_Act_On_Failure_In_Last_Transmission( TWI_Get_State_Info() );
+			}
+			// Check if the TWI Transceiver has already been started.
+			// If not then restart it to prepare it for new receptions.
+			if ( ! TWI_Transceiver_Busy() ) {
+				TWI_Start_Transceiver();
+			}
+		}
+		else { // Ends up here if the last operation completed unsuccessfully
+			//TWI_Act_On_Failure_In_Last_Transmission( TWI_Get_State_Info() );
+			int tempt = 1;
+		}
+	}
+}
+
+
 //================================================================================================
 //                                          Main
 //================================================================================================
@@ -817,35 +848,7 @@ int main(void){
 	// ====== Primary Loop ======
 	while(start == 0){
 		
-		// TEMP
-		
-		
-		
-		// Check if the TWI Transceiver has completed an operation.
-		if ( ! TWI_Transceiver_Busy() ) {
-			// Check if the last operation was successful
-			if ( TWI_statusReg.lastTransOK ) {
-				// Check if the last operation was a reception
-				if ( TWI_statusReg.RxDataInBuf ) {
-					PORTC ^= BIT(blueLED);	// Toggle blueLED
-					TWI_Get_Data_From_Transceiver(messageBuf, 2);
-					receivedI2C = messageBuf[0];
-				}
-				else { // Ends up here if the last operation was a transmission
-					asm("nop");   // Put own code here.
-					TWI_Act_On_Failure_In_Last_Transmission( TWI_Get_State_Info() );
-				}
-				// Check if the TWI Transceiver has already been started.
-				// If not then restart it to prepare it for new receptions.
-				if ( ! TWI_Transceiver_Busy() ) {
-					TWI_Start_Transceiver();
-				}
-			}
-			else { // Ends up here if the last operation completed unsuccessfully
-				//TWI_Act_On_Failure_In_Last_Transmission( TWI_Get_State_Info() );
-				int tempt = 1;
-			}
-		}
+		runTWI();
 		
 		// Run state estimator (TODO implement this with IMU)
 		//stateEstimator(&n_x, &t_o);

@@ -1,6 +1,5 @@
 //#include <\\research.wpi.edu\srl\Projects\Ant\Delta_Rho\Code\Libraries\DeltaRho.h>
 #include "DeltaRho.h"
-//#include "I2CSlave.h"
 
 #include <math.h>
 #include <time.h>
@@ -9,7 +8,7 @@
 #include "avr/sleep.h"
 
 // REMEMBER TO CHANGE ROBOTid FOR EACH ROBOT
-#define RobotID				4
+#define RobotID				6
 #define I2C_ADDR			0x08 // I2C Slave Address *** Pin 1 is SCL***
 #define PI					3.14159265358979323846
 #define NUM_SAMPLES			5	 // Number of sensor samples for mean filtering
@@ -21,7 +20,7 @@
 // Handle TWI (i2c) error
 unsigned char TWI_Act_On_Failure_In_Last_Transmission ( unsigned char TWIerrorMsg );
 // I2C Byte Variable
-volatile uint8_t receivedI2C = 0x02; // Global var to store latest received i2c data -x02 default value
+volatile int receivedI2C = 0x02; // Global var to store latest received i2c data -x02 default value
 unsigned char messageBuf[TWI_BUFFER_SIZE];
 
 // PID structure
@@ -205,8 +204,8 @@ ISR(USART1_RX_vect)
 					//send_data[0] = (int) (output1 * 100);
 					//send_data[1] = (int) (output2 * 100);
 				// SEND I2C DATA from esp-cam
-					send_data[0] = (int) receivedI2C;
-					send_data[1] = (int) receivedI2C;
+					send_data[0] = receivedI2C;
+					send_data[1] = receivedI2C;
 					
 					
 					USART1_SerialSend(send_data, 3);					
@@ -777,8 +776,7 @@ void runTWI (void){
 			if ( TWI_statusReg.RxDataInBuf ) {
 				PORTC ^= BIT(blueLED);	// Toggle blueLED
 				TWI_Get_Data_From_Transceiver(messageBuf, 4);
-				messageBuf[5] = '\0'; // Null-terminate the string
-				//receivedI2C = messageBuf[0];
+				messageBuf[4] = '\0'; // Null-terminate the string
 				receivedI2C = atoi((char*)messageBuf);
 			}
 			else { // Ends up here if the last operation was a transmission

@@ -14,14 +14,8 @@
 #define NUM_SAMPLES			5	 // Number of sensor samples for mean filtering
 #define PULSE_VOLTAGE		255  // or 100?
 #define THRESHOLD_VOLTAGE	80	 // Below this voltage, motors may not move
-// Enable Power Management  - TESTING!!!
-#define POWER_MANAGEMENT_ENABLED
+#define POWER_MANAGEMENT_ENABLED // Enable power management for TWI
 
-// Handle TWI (i2c) error
-unsigned char TWI_Act_On_Failure_In_Last_Transmission ( unsigned char TWIerrorMsg );
-// I2C Byte Variable
-volatile int receivedI2C = 0x02; // Global var to store latest received i2c data -x02 default value
-unsigned char messageBuf[TWI_BUFFER_SIZE];
 
 // PID structure
 typedef struct {
@@ -40,59 +34,46 @@ typedef struct {
 	float y;
 } Vector2D;
 
-// Old, potentially unused variables
-volatile signed int xd[3] = {0,0,0};
-volatile signed int x[3] = {0,0,0};
-volatile signed int xO[3] = {0,0,0};
-//volatile signed int dx[3] = {0,0,0};
-//volatile signed int dxO[3] = {0,0,0};
-//volatile float F_R[3] = {0,0,0};
-volatile int out[3] = {0,0,0};
-volatile int in[3] = {0,0,0};
+// Legacy variables
+volatile signed int xd[3], x[3], xO[3]; // = {0,0,0};
+volatile int out[3], in[3]; // = {0,0,0};
 volatile char start = 0;
-//volatile unsigned int t_x = 0;
-//volatile unsigned int t_o = 0;
-volatile unsigned char n_x = 0;
-volatile unsigned char n_o = 0;
+volatile unsigned char n_x, n_o; // = 0;
 volatile uint32_t overflowCount = 0; // Hyland added/modified this
+
+// Mode Toggle (binary for now)
+int mode_switch = 0;
+
+// For sending data via XBee
+volatile int send_data[3] = {0, 0, 0};
+
+// I2C & TWI setup
+volatile int receivedI2C = 0x02; // Global var to store latest received i2c data: 0x02 default value
+unsigned char messageBuf[TWI_BUFFER_SIZE];
 
 // Control Input
 float u_r[3] = {0, 0, 0};
-float output1;
-float output2;
+float output1, output2;
 
 // Force Sensor
 float Links[5] = {25.0, 25.0, 40.0, 40.0, 22.84};
 float EE[2] = {0, 0};
 Vector2D home = {0, 0}; // {9.7, 50.1}; // TEMP hard-code from geometric analysis
 Vector2D raw_sensor_data = {729.211, 418.9086}; // Hard-coded voltages representing 120 and 60 degs
-	
-// Mode Toggle (binary for now)
-int mode_switch = 0;
 
-// State estimate
-float curr_X[3] = {0, 0, 0};
-
-// For sending data via XBee
-volatile int send_data[3] = {0, 0, 0};
-	
-// Timer function
-double t = 0;
-double t_run = 0;
-
-// Dynamic Jacobian Construction
+// Robot Jacobian
 float J_r[3][3] = {{0.8192, 0.5736, -0.1621}, {0.0, -1.0, -1.36}, {-0.8192, 0.5736, -0.1621}}; // Default value
 float J[3][3];
 
 // Add 'pulse' to overcome stiction
-int thisVoltage[6] = {0, 0, 0, 0, 0, 0};
-int tempVoltage[6] = {0, 0, 0, 0, 0, 0};
-int lastVoltage[6] = {0, 0, 0, 0, 0, 0};
+int thisVoltage[6], tempVoltage[6], lastVoltage[6]; // = {0, 0, 0, 0, 0, 0};
 
-// Forward declaration of medianFilter
+
+// --- FORWARD DECLARATIONS ---
 float medianFilter(float arr[], int n);
-// Forward declaration of rotateVector
 Vector2D rotateVector(Vector2D v_in, float angle);
+unsigned char TWI_Act_On_Failure_In_Last_Transmission(unsigned char TWIerrorMsg);
+
 
 
 // =======================================================================
@@ -242,26 +223,13 @@ ISR(TIMER3_COMPA_vect) {
 
 
 
-// =======================================================================
-// =======================     I2C SETUP     =============================
-// =======================================================================
-
-//		Receive I2C Data
-//========================================================================
-void I2C_received(uint8_t received_data) {
-	receivedI2C = received_data;
-	PORTC ^= BIT(blueLED);	// Toggle blueLED
-}
-
-//		Receive I2C Data
-//========================================================================
-void I2C_requested() {
-	I2C_transmitByte(receivedI2C);
-}
+// ===========================================================================
+// =========================     I2C SETUP     ===============================
+// ===========================================================================
 
 //		I2C Error Handling Function
 //========================================================================
-unsigned char TWI_Act_On_Failure_In_Last_Transmission ( unsigned char TWIerrorMsg )
+unsigned char TWI_Act_On_Failure_In_Last_Transmission (unsigned char TWIerrorMsg)
 {
 	// A failure has occurred, use TWIerrorMsg to determine the nature of the failure
 	// and take appropriate actions.
@@ -274,6 +242,30 @@ unsigned char TWI_Act_On_Failure_In_Last_Transmission ( unsigned char TWIerrorMs
 	
 	return TWIerrorMsg;
 }
+
+//		I2C Receive from Master
+//========================================================================
+void runTWI (void){
+	
+	if ( ! TWI_Transceiver_Busy() ) {			// Check if transceiver has completed operation
+		if ( TWI_statusReg.lastTransOK ) {		// Check if last operation was success
+			if ( TWI_statusReg.RxDataInBuf ) {	// Check if last operation was reception
+				TWI_Get_Data_From_Transceiver(messageBuf, 4);
+				messageBuf[4] = '\0';			// Null-terminate the string
+				receivedI2C = atoi((char*)messageBuf) - 180; // Unwrap to -180 to +180
+			}
+			
+			if ( ! TWI_Transceiver_Busy() ) {	// Check if transceiver already started
+				TWI_Start_Transceiver();		// If not, restart it to prepare for new receptions
+			}
+		}
+		else {									// Ends up here if last operation unsuccessful
+			TWI_Act_On_Failure_In_Last_Transmission( TWI_Get_State_Info() );
+		}
+	}
+}
+
+
 
 // ===========================================================================
 // ========================     MOTOR FUNCTIONS     ==========================
@@ -422,6 +414,7 @@ void sendMotor(void){
 }
 
 
+
 // ===========================================================================
 // ========================     SENSOR FUNCTIONS     =========================
 // ===========================================================================
@@ -516,6 +509,7 @@ void sensorKinematics(void) {
 }
 
 
+
 // ===========================================================================
 // =======================     HELPER FUNCTIONS     ==========================
 // ===========================================================================
@@ -592,6 +586,7 @@ void getHome(void){
 }
 
 
+
 // ===========================================================================
 // ======================     ALGORITHM FUNCTIONS     ========================
 // ===========================================================================
@@ -625,15 +620,17 @@ void nullSpaceControl (void) {
 
 //		Correct the attitude of the robot using force sensor
 //========================================================================
-float correctAttitude (PIDController *pid_attitude) {
+float correctAttitude (PIDController *pid_attitude, float error_metric) {
 	
 	// u_r[0] is Z motion (CCW+/CW-)
 	// u_r[1] is X motion (Fwd+/Bkwd-)
 	// u_r[2] is Y motion (Right+/Left-)
 		
 	// ----- PID Controller -----
-	// Error is lateral deviation   // IT WAS: angle between heading and force measurement
-	float error = EE[0];
+	// When doing JUST force, error is lateral deviation. It WAS: angle between heading and force measurement
+	// When using on-board camera, error is visual feedback
+	float error = error_metric; // EE[0];
+	
 	pid_attitude->integral += error;
 	float derivative = (error - pid_attitude->prevError);
 	float output = pid_attitude->Kp * error + pid_attitude->Ki * pid_attitude->integral + pid_attitude->Kd * derivative;
@@ -750,7 +747,7 @@ void comEstimate2 (PIDController *pid_com_angle, PIDController *pid_attitude) {
 	Vector2D rotated_output = rotateVector(robot_heading, output1);
 	
 	// Perform attitude correction
-	float att_output = correctAttitude(&pid_attitude);
+	float att_output = correctAttitude(&pid_attitude, receivedI2C);
 	
 	// Assign to control input array
 	float mag_sensor_direc  = sqrt(pow(sensor_direc.x, 2) + pow(sensor_direc.y, 2));
@@ -767,118 +764,67 @@ void comEstimate2 (PIDController *pid_com_angle, PIDController *pid_attitude) {
 }
 
 
-void runTWI (void){
-	// Check if the TWI Transceiver has completed an operation.
-	if ( ! TWI_Transceiver_Busy() ) {
-		// Check if the last operation was successful
-		if ( TWI_statusReg.lastTransOK ) {
-			// Check if the last operation was a reception
-			if ( TWI_statusReg.RxDataInBuf ) {
-				PORTC ^= BIT(blueLED);	// Toggle blueLED
-				TWI_Get_Data_From_Transceiver(messageBuf, 4);
-				messageBuf[4] = '\0'; // Null-terminate the string
-				receivedI2C = atoi((char*)messageBuf);
-			}
-			else { // Ends up here if the last operation was a transmission
-				asm("nop");   // Put own code here.
-				TWI_Act_On_Failure_In_Last_Transmission( TWI_Get_State_Info() );
-			}
-			// Check if the TWI Transceiver has already been started.
-			// If not then restart it to prepare it for new receptions.
-			if ( ! TWI_Transceiver_Busy() ) {
-				TWI_Start_Transceiver();
-			}
-		}
-		else { // Ends up here if the last operation completed unsuccessfully
-			//TWI_Act_On_Failure_In_Last_Transmission( TWI_Get_State_Info() );
-			int tempt = 1;
-		}
-	}
-}
-
 
 //================================================================================================
-//                                          Main
+//************************************       MAIN       ******************************************
 //================================================================================================
 int main(void){
 		
-	// Initialize micro controller
-	mC_init();
+	mC_init();					// Initialize micro controller
 	
 	// Initialize TWI module for slave operation. Include address and/or enable General Call
 	TWI_Slave_Initialise((unsigned char)((0x08<<TWI_ADR_BITS) | (TRUE<<TWI_GEN_BIT) )); // TRUE
 	
-	sei();					// Enable global interrupts
-	// Start the TWI transceiver to enable reception of the first command from TWI master
-	TWI_Start_Transceiver();
-	
-	
-	// Set received/requested callbacks
-	//I2C_setCallbacks(I2C_received, I2C_requested);
-	// Initialize I2C
-	//I2C_init(I2C_ADDR);
-	
-	// Start the timer
+	sei();						// Enable global interrupts
+	TWI_Start_Transceiver();	// Enable reception of first command from master
+		
+	// Start timer3 (unused?)
 	TCNT3H = 0;
 	TCNT3L = 0;
-	TIMSK3 |= (1<<TOIE3);	// Enable Timer3 overflow interrupt - ChatGPT advised
-	PORTC |= BIT(redLED);	// Turn ON redLED
-	
-	////TCCR3B = (0<<CS32) | (0<<CS31) | (0<<CS30); // IDK what this does
-		
+	TIMSK3 |= (1<<TOIE3);		// Enable Timer3 overflow interrupt - ChatGPT advised
+	PORTC |= BIT(redLED);		// Turn ON redLED
+			
 	// PID INITIALIZATIONS (Kp, Ki, Kd)
-	PIDController pid_com;
+	PIDController pid_com, pid_com2;
 	PID_Init(&pid_com, 65, 0, 0); // Kp=20
-	PIDController pid_com2;
 	PID_Init(&pid_com2, 65, 0, 0);
 	
-	PIDController pid_com_angle;
+	// Forget what these PIDs are
+	PIDController pid_com_angle, pid_attitude;
 	PID_Init(&pid_com_angle, 1, 0, 0);
-	
-	PIDController pid_attitude;
 	PID_Init(&pid_attitude, .1, 0, 0); // 0.005, .004);
+		
+	getHome();					// Get force sensor home position and assign to 'home'
 	
-	int rest_period = 1000; // initial resting period
-	int iii = 0;			// iterator
+	int iii = 0;				// iterator
 	
-	getHome();				// Get force sensor home position and assign to 'home'
 	
-	// ====== Primary Loop ======
+	// ========== PRIMARY LOOP ==========
 	while(start == 0){
 		
-		runTWI();
-		
-		// Run state estimator (TODO implement this with IMU)
-		//stateEstimator(&n_x, &t_o);
+		runTWI();				// Run all i2c comms
 							
-		// Calculate force and direction of sensor, assign to 'EE' global variable
-		sensorKinematics();
+		sensorKinematics();		// Force feedback, assigned to EE var
 		
-		
-		// Defaults to FALSE. Switch mode via MATLAB
-		if (mode_switch) {
+		if (mode_switch) {		// Defaults to FALSE. Switch mode via MATLAB
 			
-			// Induce motion in payload when 'mode switch' is activated
-			while (iii < rest_period){
+			while (iii < 1000){ // Induce motion in payload for CoM estimate
 				iii ++;
 				u_r[2] = 2500;
 				sendMotor();
 			}
+
+			// nullSpaceControl(); // Cancel out force detected by sensor
 			
-			// Cancel out force detected by sensor
-			// nullSpaceControl();
-			
-			// Perform CoM estimation + Attitude Correction
 			//comEstimate(&pid_com, &pid_com2, &pid_attitude);
-			comEstimate2(&pid_com_angle, &pid_attitude);
+			comEstimate2(&pid_com_angle, &pid_attitude); // CoM estimate AND attitude correction
 			
-			// SEND ALL calculated motor commands to motors
-			sendMotor();
+			sendMotor(); // Send all motor commands
 		}
 		
 		
 		else {
-			// When not in on-board mode, send an initial 'stop' command
+			// When not in on-board mode, send initial 'stop' command
 			iii = 0;
 			if (iii == 0) {
 				u_r[0] = 0;
@@ -889,8 +835,8 @@ int main(void){
 			}
 		}
 		
-		//PORTC ^= BIT(blueLED);	// Toggle blueLED
-		_delay_ms(100);		// Changed from 100 to test which loop is running 11/28/23
+		PORTC ^= BIT(blueLED);	// Toggle blueLED
+		_delay_ms(100);			// Changed from 100 to test which loop is running 11/28/23
 	}
 	
 	//PORTC |= BIT(blueLED);		// Turn ON blueLED

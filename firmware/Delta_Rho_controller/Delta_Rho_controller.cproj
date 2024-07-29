@@ -168,9 +168,6 @@
     <Compile Include="Delta_Rho_controller.c">
       <SubType>compile</SubType>
     </Compile>
-    <None Include="minimal_code.c">
-      <SubType>compile</SubType>
-    </None>
     <Compile Include="TWI_slave.c">
       <SubType>compile</SubType>
     </Compile>

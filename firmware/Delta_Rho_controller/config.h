@@ -166,8 +166,10 @@ Vector2D rotateVector(Vector2D v_in, float angle) {
 //========================================================================
 float getAngle(Vector2D v1, Vector2D v2){
 	// Catch zero-length sensor measurement
-	if (v2.x == 0 && v2.y ==0){
-	return 0; }
+	if (v1.x == 0 || v1.y == 0 || v2.x == 0 || v2.y == 0)
+		return 0;
+		
+	
 	return atan2f(v1.x * v2.y - v1.y * v2.x , v1.x * v2.x + v1.y * v2.y);
 }
 

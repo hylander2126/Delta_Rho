@@ -11,13 +11,15 @@
 // ================= IMPORTANT: CHANGE RobotID =================
 #define RobotID				6
 // =============================================================
-#define I2C_ADDR			0x08 // I2C Slave Address *** Pin 1 is SCL***
-#define POWER_MANAGEMENT_ENABLED // Enable power management for TWI
+#define I2C_ADDR			0x08	// I2C Slave Address *** Pin 1 is SCL***
+#define POWER_MANAGEMENT_ENABLED	// Enable power management for TWI
+#define STOP_UPPER			185		// UPPER acceptable payload rotation for stop condition
+#define STOP_LOWER			175		// LOWER acceptable payload rotation for stop condition
 
 
 // Legacy variables
-volatile signed int xd[3], x[3], xO[3]; // = {0,0,0};
-volatile int out[3], in[3]; // = {0,0,0};
+volatile signed int xd[3], x[3], xO[3];
+volatile int out[3], in[3];
 volatile char start = 0;
 
 // Global variable for whatevs
@@ -28,20 +30,21 @@ volatile int send_data[3] = {0, 0, 0};			// For sending data wirelessly via XBee
 // I2C & TWI setup
 volatile int i2c_data = 180;					// Global var to store latest received i2c data: 0x02 default value
 unsigned char message_buf[TWI_BUFFER_SIZE];
-int payl_orient_0 = 180;						// Initial payload orientation for attitude control (camera is inverted currently)
 
 // Robot Jacobian
 float J_r[3][3] = {{0.8192, 0.5736, -0.1621}, {0.0, -1.0, -1.36}, {-0.8192, 0.5736, -0.1621}}; // Default value
 float J[3][3];
 
+// Primary Algorithm Variables
 float u_r[3] = {0, 0, 0};						// Control Input
+int stop_counter[10];							// STOP counter for Line of Action estimate (when minimal rotation observed)
+volatile int new_data_rec = 0;					// Flag for I2C reception
 	
 	
 // --- FORWARD DECLARATIONS ---
 float medianFilter(float arr[], int n);
 Vector2D rotateVector(Vector2D v_in, float angle);
 unsigned char TWI_Act_On_Failure_In_Last_Transmission(unsigned char TWIerrorMsg);
-
 
 
 // ===========================================================================
@@ -198,7 +201,9 @@ void runTWI (void){
 			if ( TWI_statusReg.RxDataInBuf ) {	// Check if last operation was reception
 				TWI_Get_Data_From_Transceiver(message_buf, 4);
 				message_buf[4] = '\0';			// Null-terminate the string
-				i2c_data = atoi((char*)message_buf); // TODO: Unwrap to -180 to +180
+				i2c_data = atoi((char*)message_buf);
+				
+				new_data_rec = 1;			// Set i2c reception flag to TRUE
 			}
 			
 			if ( ! TWI_Transceiver_Busy() ) {	// Check if transceiver already started
@@ -319,66 +324,75 @@ void correctAttitude (PIDController *pid_attitude) {
 	// u_r[0] is Z motion (CCW+/CW-)
 	// u_r[1] is X motion (Fwd+/Bkwd-)
 	// u_r[2] is Y motion (Right+/Left-)
-
+	
+	// Check if i2c data was received. If not, stop correcting attitude (don't make things worse... for now)
+	if (!new_data_rec)
+		return;
+	
+	// STOP CONDITION CHECK 
+	if (i2c_data >= STOP_LOWER && i2c_data <= STOP_UPPER)
+		stop_counter ++;
+	else
+		stop_counter = 0;		
+	
+	
 	// ----- PID Controller -----
 	float error = pid_attitude->setPoint - i2c_data;
 	pid_attitude->integral += error;
 	float derivative = (error - pid_attitude->prevError);
-	float output = pid_attitude->Kp * error + pid_attitude->Ki * pid_attitude->integral + pid_attitude->Kd * derivative;
+	float output = pid_attitude->Kp  * error   +   pid_attitude->Ki  *  pid_attitude->integral   +   pid_attitude->Kd  * derivative;
 	pid_attitude->prevError = error;
 
-	u_r[0] = output;
-	daGlobal = error;
+	u_r[0] = output;	// Assign z-axis motor command
+	
+	// Set I2C reception flag to FALSE now that the data has been utilized.
+	new_data_rec = 0;
 }
 
 //		CoM estimate VERSION 2 - Use angle method
 //========================================================================
-void estimateCoM (PIDController *pid_com_angle) {
+void estimateCoM (PIDController *pid_CoM) {
 	// Now move IN the direction of force (force amplification)
 	// u_r[0] is Z motion (CCW+/CW-)
 	// u_r[1] is X motion (Fwd+/Bkwd-)
 	// u_r[2] is Y motion (Right+/Left-)
 	
-	Vector2D sensor_direc	= {-EE[0], -EE[1]}; // Opposite of sensor's reading. Flip direction of the EE vector
-	Vector2D robot_heading	= {u_r[1], u_r[2]}; // Robot's command input TODO update this with ACTUAL robot heading from IMU or mocap or encoders
-	Vector2D ref_axis		= {1, 0};			// +x axis for now
+	Vector2D f_s	= {-EE[0], -EE[1]};		// Force sensor 'direction' - opposite of reading (flip direction of EE vect)
+	Vector2D f_r	= {u_r[1], u_r[2]};		// Robot heading from input - TODO update with ACTUAL robot heading from IMU or mocap or encoders
 	
-	// Catch when force sensor 'thinks' 
-	
-	// Catch when force sensor is 'near zero' and sets u_r to 0:
-	float mag_robot_heading = sqrt(pow(robot_heading.x, 2) + pow(robot_heading.y, 2));
-	if (abs(mag_robot_heading) < 0.5) {
-		robot_heading.x = 0;
-		robot_heading.y = 1; }
+	// Catch when force reading is 'away' from robot (pulling)	--> retain heading
+	if (f_s.y < 0)
+		return;
+
+	// Catch when force reading is 'near zero'					--> stop motion
+	float mag_f_s = sqrt(pow(f_s.x, 2) + pow(f_s.y, 2));
+	if (abs(mag_f_s) < 9) { // in mm
+		u_r[1] = 0;
+		u_r[2] = 0;
+		return;
+	}
 	
 	// ----- PID Controller -----
 	// Error is angle between heading and force measurement
-	float e_1 = getAngle(ref_axis, robot_heading);
-	float e_2 = getAngle(ref_axis, sensor_direc);
-	float error = e_2 - e_1; // do i want to also account for the AMOUNT of displacement of sensor EE?
+	float angle_f_r = atan2f(f_r.y, f_r.x);		// getAngle(ref_axis, robot_heading);
+	float angle_f_s = atan2f(f_s.y, f_s.x);		// getAngle(ref_axis, sensor_direc);
+	float error = angle_f_s - angle_f_r;		// TODO DO I ALSO WANT TO ACCOUNT FOR * AMOUNT * OF SENS DISPLACEMENT?
 	
 	// Integral Term
-	pid_com_angle->integral  += error;
+	pid_CoM->integral  += error;
 	// Derivative Term
-	float derivative = (error - pid_com_angle->prevError);
+	float derivative = (error - pid_CoM->prevError);
 	// PID Output
-	float output1  =  pid_com_angle->Kp  * error  +   pid_com_angle->Ki  * pid_com_angle->integral   +   pid_com_angle->Kd  * derivative;
+	float output  =  pid_CoM->Kp  * error  +   pid_CoM->Ki  * pid_CoM->integral   +   pid_CoM->Kd  * derivative;
 	// Update prev error to current error
-	pid_com_angle->prevError  = error;
+	pid_CoM->prevError  = error;
 	
-	Vector2D rotated_output = rotateVector(robot_heading, output1);
+	// Now use the output angular *change* to rotate our robot heading by a small margin. Same velocity magnitude
+	Vector2D output_rotated = rotateVector(f_r, output);
 	
 	// Assign to control input array
-	float mag_sensor_direc  = sqrt(pow(sensor_direc.x, 2) + pow(sensor_direc.y, 2));
-	if (abs(mag_sensor_direc) < -9) {
-		u_r[1] = 0;
-		u_r[2] = 0;
-	}
-	else {
-		u_r[1] = 0; // rotated_output.x;
-		u_r[2] = 0; // rotated_output.y;
-	}
-	
+	u_r[1] = output_rotated.x;
+	u_r[2] = output_rotated.y;
 }
 
 
@@ -400,15 +414,15 @@ int main(void){
 	TIMSK3 |= (1<<TOIE3);		// Enable Timer3 overflow interrupt - ChatGPT advised
 	PORTC |= BIT(redLED);		// Turn ON redLED
 	
-	// PID INITIALIZATIONS (Kp, Ki, Kd, setPoint)
-	PIDController pid_com, pid_att;
-	PID_Init(&pid_com, 1, 0, 0, 0);
-	PID_Init(&pid_att, 1.4, 0.14, 0.2, 180); // , .005, .004); // 1.4, 0, 0 works perfectly for robot 6
-		
 	getHome();					// Get force sensor home position and assign to 'home'
 	int iii = 0;				// iterator
-
-
+	
+	
+	// ==== PID INITIALIZATIONS (Kp, Ki, Kd, setPoint) ====
+	PIDController pid_com, pid_att;
+	PID_Init(&pid_com, 1.0, 0.00, 0.1, 0.0); // 1, 0, 0 works OK but maybe too agressive (it's immediately changing direction towards force feedback)
+	PID_Init(&pid_att, 1.4, 0.14, 0.2, 180); // .005, .004); // 1.4, 0, 0 works perfectly for robot 6
+		
 
 	// ========== PRIMARY LOOP ==========
 	while(start == 0){
@@ -418,17 +432,15 @@ int main(void){
 		sensorKinematics();		// Force feedback, assigned to EE var
 		
 		if (mode_switch) {		// Defaults to FALSE. Switch mode via MATLAB
+			
 			while (iii < 1000){ // Induce motion in payload for CoM estimate
 				iii ++;
 				u_r[2] = 2500;
-				sendMotor();
-			}
+				sendMotor(); }
 
 			//nullSpaceControl();			// Cancel out force detected by sensor
 			estimateCoM(&pid_com);		// CoM Estimate
 			correctAttitude(&pid_att);	// Perform attitude correction
-			//u_r[1] = 0;
-			//u_r[2] = 0;
 			
 			sendMotor(); // Send all motor commands
 		}	

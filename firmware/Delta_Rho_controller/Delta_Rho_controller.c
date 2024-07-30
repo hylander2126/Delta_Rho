@@ -9,7 +9,7 @@
 #include "avr/sleep.h"
 
 // ================= IMPORTANT: CHANGE RobotID =================
-#define RobotID				6
+#define RobotID				5
 // =============================================================
 #define I2C_ADDR			0x08	// I2C Slave Address *** Pin 1 is SCL***
 #define POWER_MANAGEMENT_ENABLED	// Enable power management for TWI
@@ -18,27 +18,26 @@
 
 
 // Legacy variables
-volatile signed int xd[3], x[3], xO[3];
+volatile char start			= 0;
 volatile int out[3], in[3];
-volatile char start = 0;
+volatile signed int xd[3], x[3], xO[3];
 
-// Global variable for whatevs
-float daGlobal;
-int mode_switch = 0;							// Mode Toggle (binary for now)
-volatile int send_data[3] = {0, 0, 0};			// For sending data wirelessly via XBee
+float daGlobal;									// Global variable for whatevs
+int mode_switch				= 0;				// Mode Toggle (binary for now)
+volatile int send_data[3]	= {0, 0, 0};		// For sending data wirelessly via XBee
 	
 // I2C & TWI setup
-volatile int i2c_data = 180;					// Global var to store latest received i2c data: 0x02 default value
+volatile int i2c_data		= 180;				// Global var to store latest received i2c data: 0x02 default value
 unsigned char message_buf[TWI_BUFFER_SIZE];
 
 // Robot Jacobian
-float J_r[3][3] = {{0.8192, 0.5736, -0.1621}, {0.0, -1.0, -1.36}, {-0.8192, 0.5736, -0.1621}}; // Default value
+float J_r[3][3]				= {{0.8192, 0.5736, -0.1621}, {0.0, -1.0, -1.36}, {-0.8192, 0.5736, -0.1621}}; // Default value
 float J[3][3];
 
 // Primary Algorithm Variables
-float u_r[3] = {0, 0, 0};						// Control Input
-int stop_counter[10];							// STOP counter for Line of Action estimate (when minimal rotation observed)
-volatile int new_data_rec = 0;					// Flag for I2C reception
+float u_r[3]				= {0, 0, 0};		// Control Input
+volatile int stop_counter	= 0;				// STOP counter for Line of Action estimate (when minimal rotation observed)
+volatile int new_data_rec	= 0;				// Flag for I2C reception
 	
 	
 // --- FORWARD DECLARATIONS ---
@@ -325,13 +324,9 @@ void correctAttitude (PIDController *pid_attitude) {
 	// u_r[1] is X motion (Fwd+/Bkwd-)
 	// u_r[2] is Y motion (Right+/Left-)
 	
-	// Check if i2c data was received. If not, stop correcting attitude (don't make things worse... for now)
-	if (!new_data_rec)
-		return;
-	
 	// STOP CONDITION CHECK 
 	if (i2c_data >= STOP_LOWER && i2c_data <= STOP_UPPER)
-		stop_counter ++;
+		stop_counter++;
 	else
 		stop_counter = 0;		
 	
@@ -413,6 +408,7 @@ int main(void){
 	TCNT3L = 0;
 	TIMSK3 |= (1<<TOIE3);		// Enable Timer3 overflow interrupt - ChatGPT advised
 	PORTC |= BIT(redLED);		// Turn ON redLED
+	PORTC &= ~BIT(blueLED);		// Turn OFF blueLED
 	
 	getHome();					// Get force sensor home position and assign to 'home'
 	int iii = 0;				// iterator
@@ -420,9 +416,9 @@ int main(void){
 	
 	// ==== PID INITIALIZATIONS (Kp, Ki, Kd, setPoint) ====
 	PIDController pid_com, pid_att;
-	PID_Init(&pid_com, 1.0, 0.00, 0.1, 0.0); // 1, 0, 0 works OK but maybe too agressive (it's immediately changing direction towards force feedback)
-	PID_Init(&pid_att, 1.4, 0.14, 0.2, 180); // .005, .004); // 1.4, 0, 0 works perfectly for robot 6
-		
+	PID_Init(&pid_com, 1.0, 0, 0.1, 0); // 1, 0, 0 works OK but maybe too aggressive (it's immediately changing direction towards force feedback)
+	PID_Init(&pid_att, 1.6, 0.2, 0.29, 180); // .005, .004); // 1.4, 0.14, 0.14 works well for robot 6
+
 
 	// ========== PRIMARY LOOP ==========
 	while(start == 0){
@@ -440,10 +436,30 @@ int main(void){
 
 			//nullSpaceControl();			// Cancel out force detected by sensor
 			estimateCoM(&pid_com);		// CoM Estimate
-			correctAttitude(&pid_att);	// Perform attitude correction
 			
+			// Check if i2c data was received. If not, DONT correct attitude (don't make things worse... for now)
+			if (new_data_rec)
+				correctAttitude(&pid_att);	// Perform attitude correction
+			//else
+				//u_r[0] = 0;					// AFTER TESTING, THERE IS A FREEZE ON THE CAM. SO THIS CAUSES FREEZES IN MOTION.
+												// NOT GOOD. INSTEAD, JUST KEEP SAME ATTITUDE INPUT AS LAST STEP...
+			
+			
+			u_r[1] = 0;
+			u_r[2] = 0;
+			stop_counter = 0;
+			
+			
+			// Check for STOP condition. If achieved, switch modes back to passive.
+			if (stop_counter > 20)
+				mode_switch = 0;
+				
 			sendMotor(); // Send all motor commands
+			
+			PORTC ^= BIT(blueLED);	// Toggle blueLED
 		}	
+		
+		
 		else {
 			// When not in on-board mode, send initial 'stop' command
 			iii = 0;
@@ -454,9 +470,9 @@ int main(void){
 				sendMotor();
 				iii ++;
 			}
+			
 		}
 		
-		PORTC ^= BIT(blueLED);	// Toggle blueLED
 		_delay_ms(100);			// Changed from 100 to test which loop is running 11/28/23
 	}
 	

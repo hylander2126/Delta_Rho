@@ -5,16 +5,16 @@
 #include <math.h>
 #include <time.h>
 #include <util/twi.h>
-#include "TWI_slave.h"
+#include "TWI_slave.h" 
 #include "avr/sleep.h"
 
 // ================= IMPORTANT: CHANGE RobotID =================
-#define RobotID				5
+#define RobotID				4
 // =============================================================
 #define I2C_ADDR			0x08	// I2C Slave Address *** Pin 1 is SCL***
 #define POWER_MANAGEMENT_ENABLED	// Enable power management for TWI
-#define STOP_UPPER			185		// UPPER acceptable payload rotation for stop condition
-#define STOP_LOWER			175		// LOWER acceptable payload rotation for stop condition
+#define STOP_UPPER			183		// UPPER acceptable payload rotation for stop condition
+#define STOP_LOWER			177		// LOWER acceptable payload rotation for stop condition
 
 
 // Legacy variables
@@ -141,8 +141,8 @@ ISR(USART1_RX_vect)
 					//send_data[0] = (int) (raw_sensor_data.x * 100); // * 180/3.1415);
 					//send_data[1] = (int) (raw_sensor_data.y * 100); // * 180/3.1415);
 				// SEND EE POSITION (mm)
-					//send_data[0] = (int) (EE[0] * 100);
-					//send_data[1] = (int) (EE[1] * 100);
+					send_data[0] = (int) (EE[0] * 100);
+					send_data[1] = (int) (EE[1] * 100);
 				// SEND STATE ESTIMATE (mm)
 					//send_data[0] = (int) (curr_X[0]); // * 100000);
 					//send_data[1] = (int) (curr_X[1]); // * 100000);
@@ -158,8 +158,8 @@ ISR(USART1_RX_vect)
 					//send_data[0] = i2c_data;
 					//send_data[1] = i2c_data;
 				// SEND WHATEVER GLOBAL DATA YOU WANT YO
-					send_data[0] = daGlobal;
-					send_data[1] = daGlobal;
+					//send_data[0] = daGlobal;
+					//send_data[1] = daGlobal;
 					
 					
 					USART1_SerialSend(send_data, 3);					
@@ -361,7 +361,7 @@ void estimateCoM (PIDController *pid_CoM) {
 
 	// Catch when force reading is 'near zero'					--> stop motion
 	float mag_f_s = sqrt(pow(f_s.x, 2) + pow(f_s.y, 2));
-	if (abs(mag_f_s) < 9) { // in mm
+	if (abs(mag_f_s) < 4) { // in mm
 		u_r[1] = 0;
 		u_r[2] = 0;
 		return;
@@ -416,8 +416,8 @@ int main(void){
 	
 	// ==== PID INITIALIZATIONS (Kp, Ki, Kd, setPoint) ====
 	PIDController pid_com, pid_att;
-	PID_Init(&pid_com, 1.0, 0, 0.1, 0); // 1, 0, 0 works OK but maybe too aggressive (it's immediately changing direction towards force feedback)
-	PID_Init(&pid_att, 1.6, 0.2, 0.29, 180); // .005, .004); // 1.4, 0.14, 0.14 works well for robot 6
+	PID_Init(&pid_com, 1, 0, 0.08, 0); // 0.8, 0, 0.08 for 6 // 1, 0, 0 works OK but maybe too aggressive (it's immediately changing direction towards force feedback)
+	PID_Init(&pid_att, 0.65, 0, 0, 180); //, 0.2, 0.29, 180); // .005, .004); // 1.4, 0.14, 0.14 works well for robot 6
 
 
 	// ========== PRIMARY LOOP ==========
@@ -440,18 +440,18 @@ int main(void){
 			// Check if i2c data was received. If not, DONT correct attitude (don't make things worse... for now)
 			if (new_data_rec)
 				correctAttitude(&pid_att);	// Perform attitude correction
-			//else
-				//u_r[0] = 0;					// AFTER TESTING, THERE IS A FREEZE ON THE CAM. SO THIS CAUSES FREEZES IN MOTION.
-												// NOT GOOD. INSTEAD, JUST KEEP SAME ATTITUDE INPUT AS LAST STEP...
+			else
+				u_r[0] = 0; // /= 2;					// AFTER TESTING, THERE IS A FREEZE ON THE CAM. SO 0 CAUSES FREEZES IN MOTION.
+												// NOT GOOD. INSTEAD, JUST slow down the correction a bit
 			
 			
 			u_r[1] = 0;
 			u_r[2] = 0;
-			stop_counter = 0;
+			stop_counter= 0;
 			
 			
 			// Check for STOP condition. If achieved, switch modes back to passive.
-			if (stop_counter > 20)
+			if (stop_counter >= 30)
 				mode_switch = 0;
 				
 			sendMotor(); // Send all motor commands

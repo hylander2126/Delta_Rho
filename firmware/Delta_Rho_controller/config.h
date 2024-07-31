@@ -2,6 +2,7 @@
 
 #define NUM_SAMPLES			5	 // Number of sensor samples for mean filtering
 #define THRESHOLD_VOLTAGE	80	 // Below this voltage, motors may not move
+#define FORCE_DEADZONE		4	 // Force sensor deadzone (small issue with force sensor)
 
 volatile unsigned char n_x, n_o; // = 0;
 volatile uint32_t overflowCount = 0;

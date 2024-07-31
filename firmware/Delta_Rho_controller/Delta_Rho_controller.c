@@ -9,12 +9,12 @@
 #include "avr/sleep.h"
 
 // ================= IMPORTANT: CHANGE RobotID =================
-#define RobotID				4
+#define RobotID				5
 // =============================================================
 #define I2C_ADDR			0x08	// I2C Slave Address *** Pin 1 is SCL***
 #define POWER_MANAGEMENT_ENABLED	// Enable power management for TWI
-#define STOP_UPPER			183		// UPPER acceptable payload rotation for stop condition
-#define STOP_LOWER			177		// LOWER acceptable payload rotation for stop condition
+#define STOP_UPPER			185		// UPPER acceptable payload rotation for stop condition
+#define STOP_LOWER			175		// LOWER acceptable payload rotation for stop condition
 
 
 // Legacy variables
@@ -38,6 +38,7 @@ float J[3][3];
 float u_r[3]				= {0, 0, 0};		// Control Input
 volatile int stop_counter	= 0;				// STOP counter for Line of Action estimate (when minimal rotation observed)
 volatile int new_data_rec	= 0;				// Flag for I2C reception
+float motion_mem[2]			= {0, 3000};		// Memory for switching between CoM and attitude correction
 	
 	
 // --- FORWARD DECLARATIONS ---
@@ -123,13 +124,6 @@ ISR(USART1_RX_vect)
 					RCW		= tempVoltage[3];
 					FRCCW	= tempVoltage[4];
 					FRCW	= tempVoltage[5];
-					
-					//FLCCW = USART1_Receive();
-					//FLCW = USART1_Receive();
-					//RCCW = USART1_Receive();
-					//RCW = USART1_Receive();
-					//FRCCW = USART1_Receive();
-					//FRCW = USART1_Receive();
 				break;
 				
 				
@@ -180,9 +174,9 @@ ISR(USART1_RX_vect)
 				
 				break;
 	
-			}	// End of: switch
+			} // End of: switch
 		} // End of: if ID match	
-	}	// End of: if start
+	} // End of: if start
 	PORTC |= BIT(redLED);
 }
 
@@ -321,73 +315,72 @@ void nullSpaceControl (void) {
 void correctAttitude (PIDController *pid_attitude) {
 
 	// u_r[0] is Z motion (CCW+/CW-)
-	// u_r[1] is X motion (Fwd+/Bkwd-)
-	// u_r[2] is Y motion (Right+/Left-)
+	// u_r[1] is X motion (Right+/Left-)
+	// u_r[2] is Y motion (Fwd+/Bwd-)
 	
 	// STOP CONDITION CHECK 
 	if (i2c_data >= STOP_LOWER && i2c_data <= STOP_UPPER)
 		stop_counter++;
 	else
-		stop_counter = 0;		
+		stop_counter		= 0;		
 	
 	
 	// ----- PID Controller -----
-	float error = pid_attitude->setPoint - i2c_data;
-	pid_attitude->integral += error;
-	float derivative = (error - pid_attitude->prevError);
-	float output = pid_attitude->Kp  * error   +   pid_attitude->Ki  *  pid_attitude->integral   +   pid_attitude->Kd  * derivative;
+	float error				= pid_attitude->setPoint - i2c_data;
+	pid_attitude->integral	+= error;
+	float derivative		= (error - pid_attitude->prevError);
+	float output			= pid_attitude->Kp  * error   +   pid_attitude->Ki  *  pid_attitude->integral   +   pid_attitude->Kd  * derivative;
 	pid_attitude->prevError = error;
 
-	u_r[0] = output;	// Assign z-axis motor command
+	u_r[0]					= output;	// Assign z-axis motor command
 	
 	// Set I2C reception flag to FALSE now that the data has been utilized.
-	new_data_rec = 0;
+	new_data_rec			= 0;
 }
 
-//		CoM estimate VERSION 2 - Use angle method
+//		CoM Estimate - 'Force Amplification'
 //========================================================================
 void estimateCoM (PIDController *pid_CoM) {
-	// Now move IN the direction of force (force amplification)
+	// Move in the direction of detected force
 	// u_r[0] is Z motion (CCW+/CW-)
-	// u_r[1] is X motion (Fwd+/Bkwd-)
-	// u_r[2] is Y motion (Right+/Left-)
+	// u_r[1] is X motion (Right+/Left-)
+	// u_r[2] is Y motion (Fwd+/Bwd-)
 	
-	Vector2D f_s	= {-EE[0], -EE[1]};		// Force sensor 'direction' - opposite of reading (flip direction of EE vect)
-	Vector2D f_r	= {u_r[1], u_r[2]};		// Robot heading from input - TODO update with ACTUAL robot heading from IMU or mocap or encoders
+	Vector2D f_s			= {-EE[0], -EE[1]};		// Force sensor 'direction' - opposite of reading (flip direction of EE vect)
+	Vector2D f_r			= {motion_mem[0], motion_mem[1]}; // {u_r[1], u_r[2]};		// Robot heading from input - TODO update with ACTUAL robot heading from IMU or mocap or encoders
 	
 	// Catch when force reading is 'away' from robot (pulling)	--> retain heading
-	if (f_s.y < 0)
+	if (f_s.y < -3)			// in mm
 		return;
 
 	// Catch when force reading is 'near zero'					--> stop motion
-	float mag_f_s = sqrt(pow(f_s.x, 2) + pow(f_s.y, 2));
-	if (abs(mag_f_s) < 4) { // in mm
-		u_r[1] = 0;
-		u_r[2] = 0;
-		return;
-	}
+	//if (sqrt(pow(f_s.x, 2) + pow(f_s.y, 2)) < 2) { // in mm
+		//u_r[1]				= 0;
+		//u_r[2]				= 0;
+		//return;
+	//}
 	
 	// ----- PID Controller -----
-	// Error is angle between heading and force measurement
-	float angle_f_r = atan2f(f_r.y, f_r.x);		// getAngle(ref_axis, robot_heading);
-	float angle_f_s = atan2f(f_s.y, f_s.x);		// getAngle(ref_axis, sensor_direc);
-	float error = angle_f_s - angle_f_r;		// TODO DO I ALSO WANT TO ACCOUNT FOR * AMOUNT * OF SENS DISPLACEMENT?
+	// Error is angle between heading (f_r) and force measurement (f_s)
+	float angle_f_r			= atan2f(f_r.y, f_r.x);
+	float angle_f_s			= atan2f(f_s.y, f_s.x);
 	
-	// Integral Term
-	pid_CoM->integral  += error;
-	// Derivative Term
-	float derivative = (error - pid_CoM->prevError);
-	// PID Output
-	float output  =  pid_CoM->Kp  * error  +   pid_CoM->Ki  * pid_CoM->integral   +   pid_CoM->Kd  * derivative;
-	// Update prev error to current error
-	pid_CoM->prevError  = error;
+	float error				= angle_f_s - angle_f_r;		// TODO DO I ALSO WANT TO ACCOUNT FOR * AMOUNT * OF SENS DISPLACEMENT?
+	pid_CoM->integral		+= error;
+	float derivative		= (error - pid_CoM->prevError);
+	float output			= pid_CoM->Kp  * error  +   pid_CoM->Ki  * pid_CoM->integral   +   pid_CoM->Kd  * derivative;
+	pid_CoM->prevError		= error;
 	
 	// Now use the output angular *change* to rotate our robot heading by a small margin. Same velocity magnitude
 	Vector2D output_rotated = rotateVector(f_r, output);
 	
 	// Assign to control input array
-	u_r[1] = output_rotated.x;
-	u_r[2] = output_rotated.y;
+	u_r[1]					= output_rotated.x;
+	u_r[2]					= output_rotated.y;
+	
+	// Assign motion memory to new motion command
+	motion_mem[0] = u_r[1];
+	motion_mem[1] = u_r[2];
 }
 
 
@@ -417,13 +410,13 @@ int main(void){
 	// ==== PID INITIALIZATIONS (Kp, Ki, Kd, setPoint) ====
 	PIDController pid_com, pid_att;
 	PID_Init(&pid_com, 1, 0, 0.08, 0); // 0.8, 0, 0.08 for 6 // 1, 0, 0 works OK but maybe too aggressive (it's immediately changing direction towards force feedback)
-	PID_Init(&pid_att, 0.65, 0, 0, 180); //, 0.2, 0.29, 180); // .005, .004); // 1.4, 0.14, 0.14 works well for robot 6
+	PID_Init(&pid_att, 1.25, 0.05, 0.2, 180); // 1.25, 0.05, 0.2 is critically damped for robot 5
 
 
 	// ========== PRIMARY LOOP ==========
 	while(start == 0){
 		
-		runTWI();				// Run all i2c comms
+		runTWI();				// Run all i2c communications
 							
 		sensorKinematics();		// Force feedback, assigned to EE var
 		
@@ -434,20 +427,30 @@ int main(void){
 				u_r[2] = 2500;
 				sendMotor(); }
 
-			//nullSpaceControl();			// Cancel out force detected by sensor
-			estimateCoM(&pid_com);		// CoM Estimate
+			// TESTING: If payload in acceptable orientation range, do CoM estimate, otherwise do attitude correction
+			if (i2c_data >= STOP_LOWER && i2c_data <= STOP_UPPER)			
+				estimateCoM(&pid_com);		// CoM Estimate
+			else {
+				correctAttitude(&pid_att);	// Perform Attitude Correction
+				u_r[1] = 0;
+				u_r[2] = 0;
+			}
 			
-			// Check if i2c data was received. If not, DONT correct attitude (don't make things worse... for now)
-			if (new_data_rec)
-				correctAttitude(&pid_att);	// Perform attitude correction
-			else
-				u_r[0] = 0; // /= 2;					// AFTER TESTING, THERE IS A FREEZE ON THE CAM. SO 0 CAUSES FREEZES IN MOTION.
-												// NOT GOOD. INSTEAD, JUST slow down the correction a bit
+			// THE FOLLOWING didn't work. Because the camera frame is small, the tag goes out of range often. We need to track that 
+			// final error just before out of range and keep moving so that the Integral term can do its job while the tag isn't observed.
 			
+					// Check if i2c data was received. If not, DONT correct attitude (don't make things worse... for now)
+					//if (new_data_rec)
+						//correctAttitude(&pid_att);	// Perform attitude correction
+					//else
+						//u_r[0] = 0; // /= 2;					// AFTER TESTING, THERE IS A FREEZE ON THE CAM. SO 0 CAUSES FREEZES IN MOTION.
+														// NOT GOOD. INSTEAD, JUST slow down the correction a bit
+			//
 			
-			u_r[1] = 0;
-			u_r[2] = 0;
-			stop_counter= 0;
+			//u_r[0] = 0; // temp disable attitude correction
+			//u_r[1] = 0;
+			//u_r[2] = 0;
+			//stop_counter= 0;
 			
 			
 			// Check for STOP condition. If achieved, switch modes back to passive.

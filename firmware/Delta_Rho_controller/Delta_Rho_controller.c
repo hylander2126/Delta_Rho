@@ -13,8 +13,8 @@
 // =============================================================
 #define I2C_ADDR			0x08	// I2C Slave Address *** Pin 1 is SCL***
 #define POWER_MANAGEMENT_ENABLED	// Enable power management for TWI
-#define STOP_UPPER			185		// UPPER acceptable payload rotation for stop condition
-#define STOP_LOWER			175		// LOWER acceptable payload rotation for stop condition
+#define STOP_UPPER			183		// UPPER acceptable payload rotation for stop condition
+#define STOP_LOWER			177		// LOWER acceptable payload rotation for stop condition
 
 
 // Legacy variables
@@ -38,7 +38,8 @@ float J[3][3];
 float u_r[3]				= {0, 0, 0};		// Control Input
 volatile int stop_counter	= 0;				// STOP counter for Line of Action estimate (when minimal rotation observed)
 volatile int new_data_rec	= 0;				// Flag for I2C reception
-float motion_mem[2]			= {0, 3000};		// Memory for switching between CoM and attitude correction
+float motion_mem[2]			= {0, 0};		// Memory for switching between CoM and attitude correction
+int att_mem					= 0;			// Memory for attitude control and stop condition
 	
 	
 // --- FORWARD DECLARATIONS ---
@@ -319,11 +320,17 @@ void correctAttitude (PIDController *pid_attitude) {
 	// u_r[2] is Y motion (Fwd+/Bwd-)
 	
 	// STOP CONDITION CHECK 
-	if (i2c_data >= STOP_LOWER && i2c_data <= STOP_UPPER)
-		stop_counter++;
+	if (i2c_data >= STOP_LOWER && i2c_data <= STOP_UPPER){
+		PORTC ^= BIT(blueLED);	// Toggle blueLED
+		stop_counter++;}
 	else
 		stop_counter		= 0;		
 	
+	// If payload in acceptable range for short while, stop correcting attitude. THIS HAS to go after the stop condition check...
+	if (stop_counter >= 6) {
+		u_r[0] = 0;
+		return;
+	}
 	
 	// ----- PID Controller -----
 	float error				= pid_attitude->setPoint - i2c_data;
@@ -422,44 +429,38 @@ int main(void){
 		
 		if (mode_switch) {		// Defaults to FALSE. Switch mode via MATLAB
 			
-			while (iii < 1000){ // Induce motion in payload for CoM estimate
+			while (iii < 1400) { // Induce motion in payload for CoM estimate
 				iii ++;
 				u_r[2] = 2500;
-				sendMotor(); }
+				sendMotor(); 
+				motion_mem[1] = 2500; // Set initial 'memory' as 'forward' upon entering this mode. 2750 is a good speed
+			}
 
 			// TESTING: If payload in acceptable orientation range, do CoM estimate, otherwise do attitude correction
-			if (i2c_data >= STOP_LOWER && i2c_data <= STOP_UPPER)			
+			//if (i2c_data >= STOP_LOWER && i2c_data <= STOP_UPPER)			
 				estimateCoM(&pid_com);		// CoM Estimate
-			else {
+			//else {
 				correctAttitude(&pid_att);	// Perform Attitude Correction
-				u_r[1] = 0;
-				u_r[2] = 0;
-			}
+				//u_r[1] = 0;
+				//u_r[2] = 0;
+			//}
 			
-			// THE FOLLOWING didn't work. Because the camera frame is small, the tag goes out of range often. We need to track that 
-			// final error just before out of range and keep moving so that the Integral term can do its job while the tag isn't observed.
-			
-					// Check if i2c data was received. If not, DONT correct attitude (don't make things worse... for now)
-					//if (new_data_rec)
-						//correctAttitude(&pid_att);	// Perform attitude correction
-					//else
-						//u_r[0] = 0; // /= 2;					// AFTER TESTING, THERE IS A FREEZE ON THE CAM. SO 0 CAUSES FREEZES IN MOTION.
-														// NOT GOOD. INSTEAD, JUST slow down the correction a bit
-			//
+			// The following idea didn't work:
+			// Because the camera frame is small, the tag goes out of range often. We need to track that final error just
+			// before out of range and keep moving so that the Integral term can do its job while the tag isn't observed.
 			
 			//u_r[0] = 0; // temp disable attitude correction
 			//u_r[1] = 0;
 			//u_r[2] = 0;
-			//stop_counter= 0;
 			
 			
 			// Check for STOP condition. If achieved, switch modes back to passive.
-			if (stop_counter >= 30)
+			if (stop_counter >= 20)
 				mode_switch = 0;
 				
 			sendMotor(); // Send all motor commands
 			
-			PORTC ^= BIT(blueLED);	// Toggle blueLED
+			//PORTC ^= BIT(blueLED);	// Toggle blueLED
 		}	
 		
 		

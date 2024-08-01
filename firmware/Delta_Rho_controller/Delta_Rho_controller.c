@@ -13,8 +13,8 @@
 // =============================================================
 #define I2C_ADDR			0x08	// I2C Slave Address *** Pin 1 is SCL***
 #define POWER_MANAGEMENT_ENABLED	// Enable power management for TWI
-#define STOP_UPPER			183		// UPPER acceptable payload rotation for stop condition
-#define STOP_LOWER			177		// LOWER acceptable payload rotation for stop condition
+#define STOP_UPPER			184		// UPPER acceptable payload rotation for stop condition
+#define STOP_LOWER			176		// LOWER acceptable payload rotation for stop condition
 
 
 // Legacy variables
@@ -38,8 +38,10 @@ float J[3][3];
 float u_r[3]				= {0, 0, 0};		// Control Input
 volatile int stop_counter	= 0;				// STOP counter for Line of Action estimate (when minimal rotation observed)
 volatile int new_data_rec	= 0;				// Flag for I2C reception
-float motion_mem[2]			= {0, 0};		// Memory for switching between CoM and attitude correction
+float u_r_mem[2]			= {0, 0};		// Memory for switching between CoM and attitude correction
 int att_mem					= 0;			// Memory for attitude control and stop condition
+Vector2D f_mem			= {0, 0};		// Memory for force sensor and stop condition
+int oob_counter				= 0;			// Count for payload rotation out of bounds (o.o.b.)
 	
 	
 // --- FORWARD DECLARATIONS ---
@@ -320,17 +322,41 @@ void correctAttitude (PIDController *pid_attitude) {
 	// u_r[2] is Y motion (Fwd+/Bwd-)
 	
 	// STOP CONDITION CHECK 
-	if (i2c_data >= STOP_LOWER && i2c_data <= STOP_UPPER){
-		PORTC ^= BIT(blueLED);	// Toggle blueLED
-		stop_counter++;}
-	else
-		stop_counter		= 0;		
+	//if (i2c_data >= STOP_LOWER && i2c_data <= STOP_UPPER){
+		//PORTC ^= BIT(blueLED);	// Toggle blueLED
+		//stop_counter++;}
+	//else
+		//stop_counter		= 0;
+		//
+	//// If payload in acceptable range for short while, stop correcting attitude. THIS HAS to go after the stop condition check...
+	//if (stop_counter >= 6) {
+		//u_r[0] = 0;
+		//return;
+	//}
 	
-	// If payload in acceptable range for short while, stop correcting attitude. THIS HAS to go after the stop condition check...
-	if (stop_counter >= 6) {
+	// Basically if payload rot ~unchanged wrt robot, increment stop counter, and don't bother correcting attitude
+	//if (i2c_data >= att_mem-3 && i2c_data <= att_mem+3) {
+		//PORTC ^= BIT(blueLED);	// Toggle blueLED
+		//stop_counter++;
+		//return; 
+	//}
+	//else { // Otherwise, reset/update the attitude memory
+		//stop_counter = 0;
+		//att_mem = i2c_data;
+	//}
+	
+	
+	
+	// Check to see if payload out of bounds
+	if (i2c_data >= STOP_LOWER && i2c_data <= STOP_UPPER) { // If in bounds, continue CoM search
 		u_r[0] = 0;
 		return;
 	}
+	else {					// If out of bounds, stop CoM search and continue att.corr.
+		u_r[1] = 0;
+		u_r[2] = 0;
+	}
+	
 	
 	// ----- PID Controller -----
 	float error				= pid_attitude->setPoint - i2c_data;
@@ -354,24 +380,24 @@ void estimateCoM (PIDController *pid_CoM) {
 	// u_r[2] is Y motion (Fwd+/Bwd-)
 	
 	Vector2D f_s			= {-EE[0], -EE[1]};		// Force sensor 'direction' - opposite of reading (flip direction of EE vect)
-	Vector2D f_r			= {motion_mem[0], motion_mem[1]}; // {u_r[1], u_r[2]};		// Robot heading from input - TODO update with ACTUAL robot heading from IMU or mocap or encoders
+	Vector2D f_r			= {u_r_mem[0], u_r_mem[1]}; // {u_r[1], u_r[2]};		// Robot heading from input - TODO update with ACTUAL robot heading from IMU or mocap or encoders
 	
 	// Catch when force reading is 'away' from robot (pulling)	--> retain heading
 	if (f_s.y < -3)			// in mm
 		return;
-
-	// Catch when force reading is 'near zero'					--> stop motion
-	//if (sqrt(pow(f_s.x, 2) + pow(f_s.y, 2)) < 2) { // in mm
-		//u_r[1]				= 0;
-		//u_r[2]				= 0;
-		//return;
-	//}
 	
-	// ----- PID Controller -----
-	// Error is angle between heading (f_r) and force measurement (f_s)
+	// Get angle of each vector w.r.t. +x axis
 	float angle_f_r			= atan2f(f_r.y, f_r.x);
 	float angle_f_s			= atan2f(f_s.y, f_s.x);
 	
+	// STOP condition check:
+	//	Catch if force reading unchanged within margin. If so, increment stop counter
+	float angle_f_mem		= atan2f(f_mem.y, f_mem.x);
+	if (abs(angle_f_s - angle_f_mem) < 5)
+		stop_counter++;
+	
+	// ----- PID Controller -----
+	// Error is angle between heading (f_r) and force measurement (f_s)
 	float error				= angle_f_s - angle_f_r;		// TODO DO I ALSO WANT TO ACCOUNT FOR * AMOUNT * OF SENS DISPLACEMENT?
 	pid_CoM->integral		+= error;
 	float derivative		= (error - pid_CoM->prevError);
@@ -386,8 +412,10 @@ void estimateCoM (PIDController *pid_CoM) {
 	u_r[2]					= output_rotated.y;
 	
 	// Assign motion memory to new motion command
-	motion_mem[0] = u_r[1];
-	motion_mem[1] = u_r[2];
+	u_r_mem[0]				= u_r[1];
+	u_r_mem[1]				= u_r[2];
+	// Update f_mem
+	f_mem = f_s;
 }
 
 
@@ -413,6 +441,7 @@ int main(void){
 	getHome();					// Get force sensor home position and assign to 'home'
 	int iii = 0;				// iterator
 	
+	int vel = 2500;		// Velocity of linear motion to maintain throughout
 	
 	// ==== PID INITIALIZATIONS (Kp, Ki, Kd, setPoint) ====
 	PIDController pid_com, pid_att;
@@ -424,43 +453,30 @@ int main(void){
 	while(start == 0){
 		
 		runTWI();				// Run all i2c communications
-							
 		sensorKinematics();		// Force feedback, assigned to EE var
 		
 		if (mode_switch) {		// Defaults to FALSE. Switch mode via MATLAB
-			
-			while (iii < 1400) { // Induce motion in payload for CoM estimate
+			while (iii < 1400){ // Induce motion in payload for CoM estimate
 				iii ++;
-				u_r[2] = 2500;
+				u_r[2]			= vel;
 				sendMotor(); 
-				motion_mem[1] = 2500; // Set initial 'memory' as 'forward' upon entering this mode. 2750 is a good speed
+				u_r_mem[1]		= vel;	// Set initial 'memory' as 'forward' upon entering this mode. 2750 is a good speed
+				att_mem			= 180;
+				stop_counter	= 0;	// Reset stop counter for multiple trials w/o restarting robot
+				f_mem.x			= 0;
+				f_mem.y			= 1;	// Reset f_mem to 'forward'
 			}
 
-			// TESTING: If payload in acceptable orientation range, do CoM estimate, otherwise do attitude correction
-			//if (i2c_data >= STOP_LOWER && i2c_data <= STOP_UPPER)			
-				estimateCoM(&pid_com);		// CoM Estimate
-			//else {
-				correctAttitude(&pid_att);	// Perform Attitude Correction
-				//u_r[1] = 0;
-				//u_r[2] = 0;
-			//}
-			
-			// The following idea didn't work:
-			// Because the camera frame is small, the tag goes out of range often. We need to track that final error just
-			// before out of range and keep moving so that the Integral term can do its job while the tag isn't observed.
-			
-			//u_r[0] = 0; // temp disable attitude correction
-			//u_r[1] = 0;
-			//u_r[2] = 0;
-			
-			
-			// Check for STOP condition. If achieved, switch modes back to passive.
-			if (stop_counter >= 20)
-				mode_switch = 0;
+			correctAttitude(&pid_att);	// Perform Attitude Correction
+			estimateCoM(&pid_com);		// CoM Estimate
+			//u_r[1]=0;
+			//u_r[2]=0;
 				
-			sendMotor(); // Send all motor commands
+			sendMotor();				// Send all motor commands
+			PORTC ^= BIT(blueLED);	// Toggle blueLED
 			
-			//PORTC ^= BIT(blueLED);	// Toggle blueLED
+			if (stop_counter >= 30)		// Check for STOP condition. If achieved, switch modes back to passive.
+				mode_switch = 0;
 		}	
 		
 		

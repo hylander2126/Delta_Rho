@@ -35,14 +35,18 @@ float J_r[3][3]				= {{0.8192, 0.5736, -0.1621}, {0.0, -1.0, -1.36}, {-0.8192, 0
 float J[3][3];
 
 // Primary Algorithm Variables
-float u_r[3]				= {0, 0, 0};		// Control Input
-volatile int stop_counter	= 0;				// STOP counter for Line of Action estimate (when minimal rotation observed)
-volatile int new_data_rec	= 0;				// Flag for I2C reception
+float u_r[3]				= {0, 0, 0};	// Control Input
+volatile int stop_counter	= 0;			// STOP counter for Line of Action estimate (when minimal rotation observed)
+volatile int new_data_rec	= 0;			// Flag for I2C reception
 float u_r_mem[2]			= {0, 0};		// Memory for switching between CoM and attitude correction
 int att_mem					= 0;			// Memory for attitude control and stop condition
-Vector2D f_mem			= {0, 0};		// Memory for force sensor and stop condition
+Vector2D f_mem				= {0, 0};		// Memory for force sensor and stop condition
 int oob_counter				= 0;			// Count for payload rotation out of bounds (o.o.b.)
-	
+
+// NEW binary search variables
+Vector2D neg_bound			= {1, 0.0001};		// Negative-most possibility for LoA
+Vector2D pos_bound			= {-1, 0.0001};		// Positive-most possibility for LoA
+int desired_vel				= 2500;				// Desired velocity of robot
 	
 // --- FORWARD DECLARATIONS ---
 float medianFilter(float arr[], int n);
@@ -348,14 +352,14 @@ void correctAttitude (PIDController *pid_attitude) {
 	
 	
 	// Check to see if payload out of bounds
-	if (i2c_data >= STOP_LOWER && i2c_data <= STOP_UPPER) { // If in bounds, continue CoM search
+	if (i2c_data >= 165 && i2c_data <= 195) { // If in bounds, continue CoM search STOP_LOWER and STOP_UPPER
 		u_r[0] = 0;
 		return;
 	}
-	else {					// If out of bounds, stop CoM search and continue att.corr.
-		u_r[1] = 0;
-		u_r[2] = 0;
-	}
+	//else {					// If out of bounds, stop CoM search and continue att.corr.
+		//u_r[1] = 0;
+		//u_r[2] = 0;
+	//}
 	
 	
 	// ----- PID Controller -----
@@ -393,7 +397,7 @@ void estimateCoM (PIDController *pid_CoM) {
 	// STOP condition check:
 	//	Catch if force reading unchanged within margin. If so, increment stop counter
 	float angle_f_mem		= atan2f(f_mem.y, f_mem.x);
-	if (abs(angle_f_s - angle_f_mem) < 5)
+	if (abs(angle_f_s - angle_f_mem) < 5) // FIX DEGREES
 		stop_counter++;
 	
 	// ----- PID Controller -----
@@ -419,6 +423,65 @@ void estimateCoM (PIDController *pid_CoM) {
 }
 
 
+//		LoA Search - Binary Search Algorithm
+//========================================================================
+void loaSearch (void) {
+	// u_r[0] is Z motion (CCW+/CW-)
+	// u_r[1] is X motion (Right+/Left-)
+	// u_r[2] is Y motion (Fwd+/Bwd-)
+	
+	// Bounds bisection method. Recall bounds initialized to negBound=(1, 0.1) posBound=(-1, 0.1)
+	
+	// Determine payload rotation sense with force feedback
+	Vector2D f_s			= {-EE[0],		-EE[1]};	 // Force sensor 'direction' - opposite of reading (flip direction of EE vect)
+	Vector2D f_r			= {u_r_mem[0],	u_r_mem[1]}; // {u_r[1], u_r[2]};		// Robot heading from input - TODO update with ACTUAL robot heading from IMU or mocap or encoders
+	
+	// Catch when force reading is 'away' from robot (pulling)	--> retain heading
+	if (f_s.y < -3)			// in mm
+		return;
+		
+	// Get angle of force and heading vectors w.r.t. +x axis
+	float angle_f_r			= atan2f(f_r.y, f_r.x);
+	float angle_f_s			= atan2f(f_s.y, f_s.x);
+	// Get rotation sense based on angle between motion and force feedback (-1 or 1 using RHR)
+	float rot_sense			= (angle_f_s - angle_f_r) / abs(angle_f_s - angle_f_r);
+	
+	// Catch when angle between motion and force is minimal. Continue pushing. (Sensor uncertainty)
+	if (abs(angle_f_s - angle_f_r) < 0.09) // 5 degrees
+		return;
+	
+	// Now set the new bounds based on rotation sense (make it a unit vector)
+	if (rot_sense >= 0) {
+		neg_bound.x = u_r_mem[0] / sqrt(pow(u_r_mem[0], 2) + pow(u_r_mem[1], 2));
+		neg_bound.y = u_r_mem[1] / sqrt(pow(u_r_mem[0], 2) + pow(u_r_mem[1], 2));
+	}
+	else {
+		pos_bound.x = u_r_mem[0] / sqrt(pow(u_r_mem[0], 2) + pow(u_r_mem[1], 2));
+		pos_bound.y = u_r_mem[1] / sqrt(pow(u_r_mem[0], 2) + pow(u_r_mem[1], 2));
+	}
+	
+	// Get new push direction by summing bounds and making unit vector
+	float output_x = pos_bound.x + neg_bound.x;
+	float output_y = pos_bound.y + neg_bound.y;
+	float output_norm = sqrt(pow(output_x, 2) + pow(output_y, 2));
+	
+	output_x *= ((desired_vel+150)/output_norm);
+	output_y *= ((desired_vel+150)/output_norm);
+	
+	Vector2D output = {output_x, output_y};
+	// Assign to control input array
+	u_r[1]					= output.x;
+	u_r[2]					= output.y;
+	
+	// Assign motion memory to new motion command
+	if (u_r[0] != 0 || u_r[1] != 0) {
+		u_r_mem[0]				= u_r[1];
+		u_r_mem[1]				= u_r[2];
+	}
+	
+	// Update f_mem
+	f_mem = f_s;
+}
 
 //================================================================================================
 //************************************       MAIN       ******************************************
@@ -440,9 +503,8 @@ int main(void){
 	
 	getHome();					// Get force sensor home position and assign to 'home'
 	int iii = 0;				// iterator
-	
-	int vel = 2500;		// Velocity of linear motion to maintain throughout
-	
+	int jjj = 0;				// iterator
+		
 	// ==== PID INITIALIZATIONS (Kp, Ki, Kd, setPoint) ====
 	PIDController pid_com, pid_att;
 	PID_Init(&pid_com, 1, 0, 0.08, 0); // 0.8, 0, 0.08 for 6 // 1, 0, 0 works OK but maybe too aggressive (it's immediately changing direction towards force feedback)
@@ -456,21 +518,26 @@ int main(void){
 		sensorKinematics();		// Force feedback, assigned to EE var
 		
 		if (mode_switch) {		// Defaults to FALSE. Switch mode via MATLAB
-			while (iii < 1400){ // Induce motion in payload for CoM estimate
+			while (iii < 1100){ // Induce motion in payload for CoM estimate
 				iii ++;
-				u_r[2]			= vel;
+				u_r[2]			= desired_vel;
 				sendMotor(); 
-				u_r_mem[1]		= vel;	// Set initial 'memory' as 'forward' upon entering this mode. 2750 is a good speed
+				u_r_mem[1]		= desired_vel;	// Set initial 'memory' as 'forward' upon entering this mode. 2750 is a good speed
 				att_mem			= 180;
 				stop_counter	= 0;	// Reset stop counter for multiple trials w/o restarting robot
 				f_mem.x			= 0;
 				f_mem.y			= 1;	// Reset f_mem to 'forward'
+				neg_bound.x		= 1; // Reset bounds
+				neg_bound.y		= 0.0001;
+				pos_bound.x		= -1; // Reset bounds
+				pos_bound.y		= 0.0001;
 			}
 
 			correctAttitude(&pid_att);	// Perform Attitude Correction
-			estimateCoM(&pid_com);		// CoM Estimate
-			//u_r[1]=0;
-			//u_r[2]=0;
+			if (jjj % 10 == 0)
+				loaSearch();			// Search for LoA
+			
+			jjj ++;						// Increment secondary iterator for LoA execution
 				
 			sendMotor();				// Send all motor commands
 			PORTC ^= BIT(blueLED);	// Toggle blueLED

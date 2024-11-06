@@ -463,80 +463,91 @@ int main(void){
 		runTWI();				// Run all i2c communications (receive camera info)
 		sensorKinematics();		// Force feedback, assigned to EE var
 		
-
-		if (mode_switch) {						// Defaults to FALSE. Switch mode via MATLAB
-			while (iii <= 800){
-				iii ++;
-				u_r[2]			= u_r_mem[1] = desired_vel;	// Induce motion and set initial 'memory' as 'forward'
-				u_r_mem[0]		= 0;
-				sendMotor(); 
-				stop_counter	= 0;			// Reset stop counter for multiple trials w/o restarting robot
-				neg_bound.x		= 1;			
-				pos_bound.x		= -1;			
-				neg_bound.y		= pos_bound.y = 0.0001;		// Reset bounds
-				rot_mem			= 0;
-				STOP_SWITCH		= 0;			// Reset global stop
-				att_switch		= 0;
-				temp_mem		= 180;
-				step			= 0;
-			}
-
-
-			//  === Want to do EITHER LoA search OR correct attitude ===
+		
+		// Defaults to case 0. Change modes via MATLAB
+		switch (mode_switch) {
+			// ---------------------------------------------------------------------------------------------------
+			case 0:
+				// When not in on-board mode, send initial 'stop' command
+				if (iii != 0){
+					u_r[0] = u_r[1] = u_r[2] = 0;
+					sendMotor();
+				}
+				iii = 0;
+				
+				PORTC ^= BIT(blueLED);				// Toggle blueLED
+				_delay_ms(400);						// Slow heartbeat
+				
+				break;
 			
-			// If wheel about to collide, activate attitude control
-			if (i2c_data <= STOP_LOWER || i2c_data >= STOP_UPPER) {
-				att_switch = 1; // Turn ON attitude control, stop LoA search
-				u_r[1] = 0;
-				u_r[2] = 0;
-			}
-			if (i2c_data >= 170  && i2c_data <= 190){ // 179 and 181 If attitude control is done turn OFF attitude control switch
-				att_switch = 0;
-				u_r[0] = 0;
-				u_r[1] = u_r_mem[0]; // Resume prior motion
-				u_r[2] = u_r_mem[1];
-			}
-			
-			// Attitude control switching
-			if (att_switch) {
-				correctAttitude(&pid_att);
-				// STOP CONDITION RESET
-				stop_counter = 0;
-			}
-			else {
-				loaSearch();
-				correctAttitude(&pid_att);
-				// STOP CONDITION CHECK
-				if (abs(i2c_data - rot_mem) < 0.052) //10 deg // 0.09=5 degrees  // .052 = 3 degrees // Increment if payload vs robot orientation small rate of change
+			// ---------------------------------------------------------------------------------------------------
+			case 1:
+				while (iii <= 800){
+					iii ++;
+					u_r[2]			= u_r_mem[1] = desired_vel;	// Induce motion and set initial 'memory' as 'forward'
+					u_r_mem[0]		= 0;
+					sendMotor();
+					stop_counter	= 0;			// Reset stop counter for multiple trials w/o restarting robot
+					neg_bound.x		= 1;
+					pos_bound.x		= -1;
+					neg_bound.y		= pos_bound.y = 0.0001;		// Reset bounds
+					rot_mem			= 0;
+					STOP_SWITCH		= 0;			// Reset global stop
+					att_switch		= 0;
+					temp_mem		= 180;
+					step			= 0;
+				}
+
+
+				//  === Want to do EITHER LoA search OR correct attitude ===
+				
+				// If wheel about to collide, activate attitude control
+				if (i2c_data <= STOP_LOWER || i2c_data >= STOP_UPPER) {
+					att_switch = 1; // Turn ON attitude control, stop LoA search
+					u_r[1] = 0;
+					u_r[2] = 0;
+				}
+				if (i2c_data >= 170  && i2c_data <= 190){ // 179 and 181 If attitude control is done turn OFF attitude control switch
+					att_switch = 0;
+					u_r[0] = 0;
+					u_r[1] = u_r_mem[0]; // Resume prior motion
+					u_r[2] = u_r_mem[1];
+				}
+				
+				// Attitude control switching
+				if (att_switch) {
+					correctAttitude(&pid_att);
+					// STOP CONDITION RESET
+					stop_counter = 0;
+				}
+				else {
+					loaSearch();
+					correctAttitude(&pid_att);
+					// STOP CONDITION CHECK
+					if (abs(i2c_data - rot_mem) < 0.052) //10 deg // 0.09=5 degrees  // .052 = 3 degrees // Increment if payload vs robot orientation small rate of change
 					stop_counter ++;
-			}
+				}
+				
+				rot_mem = i2c_data;
+				
+				// END EXPERIMENT
+				if (stop_counter >= 40 || STOP_SWITCH == 1){			// Check for STOP condition
+					STOP_SWITCH	= 1;				// Enable global stop
+					EE[0] = EE[1] = 0.69;			// SET EE to 'stop value' so MATLAB can change mode. Easier for data collection.
+					u_r[0] = u_r[1] = u_r[2] = 0;	// And stop robot motion (untested)
+				}
+				
+				sendMotor();						// Send all motor commands
+				
+				PORTC ^= BIT(blueLED);				// Toggle blueLED
+				_delay_ms(100);						// Rapid heartbeat
+				
+				break;
 			
-			rot_mem = i2c_data;
+			// ---------------------------------------------------------------------------------------------------
+			case 2:
 			
-			// END EXPERIMENT
-			if (stop_counter >= 40 || STOP_SWITCH == 1){			// Check for STOP condition
-				STOP_SWITCH	= 1;				// Enable global stop
-				EE[0] = EE[1] = 0.69;			// SET EE to 'stop value' so MATLAB can change mode. Easier for data collection.
-				u_r[0] = u_r[1] = u_r[2] = 0;	// And stop robot motion (untested)
-			}
-			
-			sendMotor();						// Send all motor commands
-			
-			PORTC ^= BIT(blueLED);				// Toggle blueLED			
-			_delay_ms(100);						// Rapid heartbeat
-		}	
-		
-		
-		else {
-			// When not in on-board mode, send initial 'stop' command
-			if (iii != 0){
-				u_r[0] = u_r[1] = u_r[2] = 0;
-				sendMotor();
-			}
-			iii = 0;
-			
-			PORTC ^= BIT(blueLED);				// Toggle blueLED
-			_delay_ms(400);						// Slow heartbeat	
+				break
 		}
 	}
 	

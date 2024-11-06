@@ -172,7 +172,10 @@ ISR(USART1_RX_vect)
 				
 				case(0xD0): // Switch actuation mode -> Write request (208 in decimal)
 					mode_switch	= !mode_switch; // Toggle from zero-force mode to driving mode.
+				break;
 				
+				case(0xE0) : // Switch actuation to mode 3 -> Write request (224 in decimal)
+					mode_switch = 2; // Switch to mode 3 (temporary, need to instead send a serial packet with the mode num)
 				break;
 				//////////////////////////////////////////////////////////////////////////
 				
@@ -344,20 +347,6 @@ void perturbation (void) {
 void correctAttitude (PIDController *pid_att) {
 	// u_r = [Z X Y] (Clockwise, Right, Forward)
 	
-	//// Check to see if payload is within bounds -> nearly crashing into payload (I guess it depends on the payload)
-	//if (i2c_data >= STOP_LOWER && i2c_data <= STOP_UPPER) {
-		//u_r[0]			= 0;		// If in bounds, do not correct attitude
-		//return;
-	//}
-	
-	//// STOP condition check: if payload vs robot orientation doesn't change much since last step
-	//if (abs(i2c_data - rot_mem) < 0.18) //10 deg // 0.09=5 degrees  // .052 = 3 degrees
-		//stop_counter ++;
-	//else
-		//stop_counter	= 0;		// Reset stop counter if payload rotating excessively (don't need exact rate of change assuming dt is const)
-		
-	//rot_mem				= i2c_data;	// Update rotation memory for next time step
-	
 	// ----- PID Controller -----
 	float error			= pid_att->setPoint - i2c_data;
 	pid_att->integral	+= error;
@@ -468,16 +457,20 @@ int main(void){
 		switch (mode_switch) {
 			// ---------------------------------------------------------------------------------------------------
 			case 0:
+				correctAttitude(&pid_att);
+				sendMotor();
+				_delay_ms(100);
+			// ============================================================
 				// When not in on-board mode, send initial 'stop' command
-				if (iii != 0){
-					u_r[0] = u_r[1] = u_r[2] = 0;
-					sendMotor();
-				}
-				iii = 0;
-				
-				PORTC ^= BIT(blueLED);				// Toggle blueLED
-				_delay_ms(400);						// Slow heartbeat
-				
+				//if (iii != 0){
+					//u_r[0] = u_r[1] = u_r[2] = 0;
+					//sendMotor();
+				//}
+				//iii = 0;
+				//
+				//PORTC ^= BIT(blueLED);				// Toggle blueLED
+				//_delay_ms(400);						// Slow heartbeat
+				//
 				break;
 			
 			// ---------------------------------------------------------------------------------------------------
@@ -546,8 +539,10 @@ int main(void){
 			
 			// ---------------------------------------------------------------------------------------------------
 			case 2:
+				correctAttitude(&pid_att);
+				_delay_ms(100);
 			
-				break
+				break;
 		}
 	}
 	

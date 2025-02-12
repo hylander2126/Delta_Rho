@@ -119,21 +119,28 @@ ISR(USART1_RX_vect)
 				
 				case(0xC0): // Actuator values -> Write request (192)
 					
-					thisVoltage[0] = USART1_Receive();
-					thisVoltage[1] = USART1_Receive();
-					thisVoltage[2] = USART1_Receive();
-					thisVoltage[3] = USART1_Receive();
-					thisVoltage[4] = USART1_Receive();
-					thisVoltage[5] = USART1_Receive();					
-					applyPulse();
+					//thisVoltage[0] = USART1_Receive();
+					//thisVoltage[1] = USART1_Receive();
+					//thisVoltage[2] = USART1_Receive();
+					//thisVoltage[3] = USART1_Receive();
+					//thisVoltage[4] = USART1_Receive();
+					//thisVoltage[5] = USART1_Receive();					
+					//applyPulse();
 					
 					// Apply amplified (or non-amplified) voltages
-					FLCCW	= tempVoltage[0];
-					FLCW	= tempVoltage[1];
-					RCCW	= tempVoltage[2];
-					RCW		= tempVoltage[3];
-					FRCCW	= tempVoltage[4];
-					FRCW	= tempVoltage[5];
+					//FLCCW	= tempVoltage[0];
+					//FLCW	= tempVoltage[1];
+					//RCCW	= tempVoltage[2];
+					//RCW		= tempVoltage[3];
+					//FRCCW	= tempVoltage[4];
+					//FRCW	= tempVoltage[5];
+					
+					FLCCW	= USART1_Receive();
+					FLCW	= USART1_Receive();
+					RCCW	= USART1_Receive();
+					RCW		= USART1_Receive();
+					FRCCW	= USART1_Receive();
+					FRCW	= USART1_Receive();
 				break;
 				
 				
@@ -457,8 +464,8 @@ int main(void){
 		switch (mode_switch) {
 			// ---------------------------------------------------------------------------------------------------
 			case 0:
-				correctAttitude(&pid_att);
-				sendMotor();
+				//correctAttitude(&pid_att);
+				//sendMotor();
 				_delay_ms(100);
 			// ============================================================
 				// When not in on-board mode, send initial 'stop' command

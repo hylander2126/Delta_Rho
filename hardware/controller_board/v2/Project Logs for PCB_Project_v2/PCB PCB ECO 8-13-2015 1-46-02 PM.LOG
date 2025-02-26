@@ -1,0 +1,4 @@
+Removed Pin From Net: NetName=BATTERY Pin=MP-5
+Removed Pin From Net: NetName=GND Pin=MP-8
+Added Pin To Net: NetName=GND Pin=MP-5
+Added Pin To Net: NetName=BATTERY Pin=MP-8

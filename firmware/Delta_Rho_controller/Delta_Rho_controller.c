@@ -11,7 +11,7 @@
 // ================= IMPORTANT: CHANGE RobotID =================
 #define RobotID				5
 // =============================================================
-#define I2C_ADDR			0x08				// I2C Slave Address *** Pin 1 is SCL***
+#define I2C_ADDR			0x08				// I2C Slave Address *** Square Pin 1 is SCL is Blue is pin15 on esp ***
 #define POWER_MANAGEMENT_ENABLED				// Enable power management for TWI
 #define STOP_UPPER			194					// UPPER acceptable payload rotation for att. corr.
 #define STOP_LOWER			166					// LOWER acceptable payload rotation for att. corr.
@@ -152,22 +152,16 @@ ISR(USART1_RX_vect)
 					//send_data[0] = (int) (raw_sensor_data.x * 100); // * 180/3.1415);
 					//send_data[1] = (int) (raw_sensor_data.y * 100); // * 180/3.1415);
 				// SEND EE POSITION (mm)
-					send_data[0] = (int) (EE[0] * 100);
-					send_data[1] = (int) (EE[1] * 100);
-				// SEND STATE ESTIMATE (mm)
-					//send_data[0] = (int) (curr_X[0]); // * 100000);
-					//send_data[1] = (int) (curr_X[1]); // * 100000);
-					//send_data[2] = (int) (curr_X[2]); // * 100000);
+					//send_data[0] = (int) (EE[0] * 100);
+					//send_data[1] = (int) (EE[1] * 100);
 				// SEND u_r motor command
 					//send_data[0] = (int) (u_r[0] * 100);
 					//send_data[1] = (int) (u_r[1] * 100);
 					//send_data[2] = (int) (u_r[2] * 100);
-				
-				// SEND CoM control output
-				
+								
 				// SEND I2C DATA from esp-cam
-					//send_data[0] = i2c_data;
-					//send_data[1] = i2c_data;
+					send_data[0] = (int) i2c_data;
+					send_data[1] = (int) new_data_rec;
 				// SEND WHATEVER GLOBAL DATA YOU WANT YO
 					//send_data[0] = daGlobal;
 					//send_data[1] = daGlobal;
@@ -215,7 +209,6 @@ void runTWI (void){
 				TWI_Get_Data_From_Transceiver(message_buf, 4);
 				message_buf[4] = '\0';			// Null-terminate the string
 				i2c_data = atoi((char*)message_buf);
-				
 				new_data_rec = 1;			// Set i2c reception flag to TRUE
 			}
 			
@@ -445,7 +438,7 @@ int main(void){
 	PORTC &= ~BIT(blueLED);		// Turn OFF blueLED
 	
 	getHome();					// Get force sensor home position and assign to 'home'
-	srand(time(NULL));				// Set the seed for rng
+	srand(time(NULL));			// Set the seed for rng
 	int iii = 0;				// iterator
 			
 	// ===== PID INITIALIZATIONS (Kp, Ki, Kd, setPoint) ====
@@ -459,14 +452,11 @@ int main(void){
 		runTWI();				// Run all i2c communications (receive camera info)
 		sensorKinematics();		// Force feedback, assigned to EE var
 		
-		
 		// Defaults to case 0. Change modes via MATLAB
 		switch (mode_switch) {
 			// ---------------------------------------------------------------------------------------------------
 			case 0:
-				//correctAttitude(&pid_att);
-				//sendMotor();
-				_delay_ms(100);
+			
 			// ============================================================
 				// When not in on-board mode, send initial 'stop' command
 				//if (iii != 0){
@@ -474,14 +464,20 @@ int main(void){
 					//sendMotor();
 				//}
 				//iii = 0;
-				//
-				//PORTC ^= BIT(blueLED);				// Toggle blueLED
-				//_delay_ms(400);						// Slow heartbeat
-				//
-				break;
+			// ============================================================
 			
-			// ---------------------------------------------------------------------------------------------------
+				PORTC ^= BIT(blueLED);				// Toggle blueLED
+				_delay_ms(100);						// Rapid heartbeat
+				break;
+
 			case 1:
+				correctAttitude(&pid_att);
+				//u_r[1] = 2900 * -0.2;
+				//u_r[2] = 2900 * 0.98;
+				sendMotor();
+				break;
+
+			case 2:
 				while (iii <= 800){
 					iii ++;
 					u_r[2]			= u_r_mem[1] = desired_vel;	// Induce motion and set initial 'memory' as 'forward'
@@ -542,13 +538,6 @@ int main(void){
 				PORTC ^= BIT(blueLED);				// Toggle blueLED
 				_delay_ms(100);						// Rapid heartbeat
 				
-				break;
-			
-			// ---------------------------------------------------------------------------------------------------
-			case 2:
-				correctAttitude(&pid_att);
-				_delay_ms(100);
-			
 				break;
 		}
 	}

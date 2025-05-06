@@ -1986,7 +1986,7 @@ Disassembly of section .text:
     1046:	80 91 ce 00 	lds	r24, 0x00CE	; 0x8000ce <__TEXT_REGION_LENGTH__+0x7e00ce>
     104a:	98 2f       	mov	r25, r24
     104c:	9f 70       	andi	r25, 0x0F	; 15
-    104e:	95 30       	cpi	r25, 0x05	; 5
+    104e:	9a 30       	cpi	r25, 0x0A	; 10
     1050:	11 f0       	breq	.+4      	; 0x1056 <__EEPROM_REGION_LENGTH__+0x56>
     1052:	91 11       	cpse	r25, r1
     1054:	e4 cf       	rjmp	.-56     	; 0x101e <__EEPROM_REGION_LENGTH__+0x1e>

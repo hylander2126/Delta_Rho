@@ -1,0 +1,21 @@
+u_r = [0;0;3500]
+
+rotTrial = trial1:
+P = 30
+I = 2
+D = 1.5
+
+trial2:
+P = 45
+I = 2
+D = 1.5
+
+trial3:
+P = 45
+I = 2
+D = 1
+
+trial4:
+P = 60
+I = 2
+D = 1.2

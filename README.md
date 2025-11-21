@@ -24,7 +24,7 @@ MATLAB Communication is performed through two Xbee RF modules, one 'server' atta
 #### Communication:
 XBee modules need to be flashed to operate on the same bandwidth and to determine the 'server' and 'client' modules, respectively. This setup only needs to be performed once on new XBee modules. 
 
-(FINISH THIS SECTION)
+(TODO: Add programming instructions)
 
 ### Simulation:
 Currently, all the simulation is performed in MATLAB. Other simulation software is in progress.
